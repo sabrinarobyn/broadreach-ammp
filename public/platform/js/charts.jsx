@@ -282,4 +282,46 @@ function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics =
   );
 }
 
-Object.assign(window, { FlowChart, Donut, Spark, MiniBars, useWidth, InverterChart, INV_METRICS, INV_METRIC_ORDER });
+/* ---- Scatter chart: AC power vs inverter temperature, one series per inverter ---- */
+function ScatterChart({ series, height = 360 }) {
+  const [ref, w] = useWidth();
+  const padL = 46, padR = 16, padT = 16, padB = 34;
+  const W = Math.max(320, w), H = height;
+  const iw = W - padL - padR, ih = H - padT - padB;
+
+  const allPts = series.flatMap(s => s.pts.filter(p => p.temp).map(p => ({ x: p.temp, y: p.power, color: s.color })));
+  if (!allPts.length) {
+    return <div className="mono" style={{ padding: 32, textAlign: 'center', color: 'var(--ink-light)', fontSize: '0.72rem' }}>No matched power/temperature points in this range.</div>;
+  }
+  const maxX = Math.max(...allPts.map(p => p.x)) * 1.08 || 1;
+  const minX = Math.min(0, Math.min(...allPts.map(p => p.x)));
+  const maxY = Math.max(...allPts.map(p => p.y)) * 1.12 || 1;
+  const x = (v) => padL + ((v - minX) / (maxX - minX || 1)) * iw;
+  const y = (v) => padT + ih - (v / maxY) * ih;
+  const ticks = 5;
+
+  return (
+    <div ref={ref} style={{ width: '100%' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block' }}>
+        {Array.from({ length: ticks + 1 }, (_, i) => {
+          const yy = padT + ih - (i / ticks) * ih;
+          return (
+            <g key={i}>
+              <line x1={padL} x2={W - padR} y1={yy} y2={yy} stroke="#EAEEF1" strokeWidth="1" strokeDasharray={i === 0 ? '0' : '3 4'} />
+              <text x={padL - 8} y={yy + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-mono)" fill="#9AA4AE">{Math.round(maxY * (i / ticks))}</text>
+            </g>
+          );
+        })}
+        {Array.from({ length: ticks + 1 }, (_, i) => {
+          const xx = padL + (i / ticks) * iw;
+          const v = minX + (i / ticks) * (maxX - minX);
+          return <text key={i} x={xx} y={H - 10} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="#9AA4AE">{Math.round(v)}</text>;
+        })}
+        {allPts.map((p, i) => <circle key={i} cx={x(p.x)} cy={y(p.y)} r="3" fill={p.color} opacity="0.65" />)}
+      </svg>
+      <div className="mono" style={{ textAlign: 'center', fontSize: '0.62rem', color: 'var(--ink-light)', marginTop: 4 }}>X: inverter temperature (°C) · Y: AC power (kW)</div>
+    </div>
+  );
+}
+
+Object.assign(window, { FlowChart, Donut, Spark, MiniBars, useWidth, InverterChart, INV_METRICS, INV_METRIC_ORDER, ScatterChart });

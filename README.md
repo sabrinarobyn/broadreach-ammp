@@ -12,9 +12,9 @@ ammp-proxy/
   package.json
   render.yaml        one-click deploy config for Render
   public/
-    index.html       sign-in gate (verifies the key with AMMP, then unlocks the tools)
-    portfolio.html   fleet overview + O&M schedule
-    grapher.html     per-asset power-vs-temp charts
+    index.html       sign-in gate (verifies the key with AMMP, then opens the Platform)
+    platform/        the Platform — portfolio overview, O&M schedule, site deep dive
+                      and grapher (per-asset power-vs-temp charts), all in one app
 ```
 
 ## Deploy so the team can use it (Render, free)
@@ -46,8 +46,8 @@ npm install
 npm start
 ```
 
-Then open http://localhost:3001. The pages use relative paths, so localhost and the
-hosted URL behave identically.
+Then open http://localhost:3001, sign in, and you land in the Platform. The pages
+use relative paths, so localhost and the hosted URL behave identically.
 
 ## How it works
 

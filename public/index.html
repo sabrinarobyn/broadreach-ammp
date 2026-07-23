@@ -37,17 +37,6 @@ input:focus{border-color:var(--br);}
 .msg-info{background:var(--br-xlt);color:var(--br-dk);display:block;}
 .hint{margin-top:18px;font-family:'DM Mono',monospace;font-size:11px;color:var(--grey);line-height:1.6;border-top:0.5px solid var(--grey-lt);padding-top:14px;}
 
-/* ---- tools view (after auth) ---- */
-.tools-wrap{max-width:1000px;margin:0 auto;padding:40px 32px 60px;width:100%;}
-.lead{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:2px;color:var(--br);margin-bottom:6px;}
-.sub{font-family:'DM Mono',monospace;font-size:12px;color:var(--grey);margin-bottom:28px;}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
-.tool{display:block;text-decoration:none;background:var(--white);border:0.5px solid var(--grey-lt);border-top:3px solid var(--br);border-radius:var(--radius-lg);padding:22px 22px 20px;transition:box-shadow .15s,transform .1s;color:var(--ink);}
-.tool:hover{box-shadow:0 4px 20px rgba(92,128,152,0.16);transform:translateY(-2px);}
-.tool-name{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--br);margin-bottom:6px;}
-.tool-desc{font-size:13px;color:var(--grey);line-height:1.5;}
-.signout{background:none;border:none;color:var(--br-lt);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;text-decoration:underline;margin-left:auto;}
-.signout:hover{color:#fff;}
 footer{max-width:1000px;margin:0 auto;padding:0 32px 24px;font-family:'DM Mono',monospace;font-size:11px;color:var(--grey);width:100%;}
 </style>
 </head>
@@ -64,7 +53,6 @@ footer{max-width:1000px;margin:0 auto;padding:0 32px 24px;font-family:'DM Mono',
       <div class="wordmark-t">BROADREACH</div>
       <div class="wordmark-s">Energy · AMMP Monitoring</div>
     </div>
-    <button class="signout" id="signoutBtn" style="display:none;" onclick="signOut()">Sign out</button>
   </div>
 </header>
 <div class="accent"></div>
@@ -73,7 +61,7 @@ footer{max-width:1000px;margin:0 auto;padding:0 32px 24px;font-family:'DM Mono',
 <div class="wrap" id="loginView">
   <div class="login-card">
     <div class="login-title">Sign in</div>
-    <div class="login-sub">Enter your AMMP API key to access the monitoring tools.</div>
+    <div class="login-sub">Enter your AMMP API key to open the Platform.</div>
     <form id="loginForm" onsubmit="return login(event)">
       <label for="apiKey">API key</label>
       <input type="password" id="apiKey" placeholder="x-api-key" autocomplete="off" autofocus/>
@@ -84,41 +72,10 @@ footer{max-width:1000px;margin:0 auto;padding:0 32px 24px;font-family:'DM Mono',
   </div>
 </div>
 
-<!-- TOOLS VIEW (shown after auth) -->
-<div class="tools-wrap" id="toolsView" style="display:none;">
-  <div class="lead">AMMP Monitoring Tools</div>
-  <div class="sub">Signed in · live PV inverter data via the AMMP Data API</div>
-  <div class="grid">
-    <a class="tool" href="portfolio.html">
-      <div class="tool-name">Portfolio Overview</div>
-      <div class="tool-desc">Fleet-wide view of all sites with O&amp;M schedule, maintenance due dates, and per-site status.</div>
-    </a>
-    <a class="tool" href="grapher.html">
-      <div class="tool-name">Grapher</div>
-      <div class="tool-desc">Deep-dive charts for one asset: AC power vs inverter temperature, and dual-axis time series per inverter.</div>
-    </a>
-    <a class="tool" href="platform/index.html">
-      <div class="tool-name">Platform (beta)</div>
-      <div class="tool-desc">Full portfolio dashboard prototype — grid/table/map views, O&amp;M schedule and a site deep dive with live AMMP inverter charts.</div>
-    </a>
-  </div>
-</div>
-
 <footer>Broadreach Energy · AMMP Data API v1</footer>
 
 <script>
 const KEY_STORE = 'ammpKey';
-
-function showTools(){
-  document.getElementById('loginView').style.display='none';
-  document.getElementById('toolsView').style.display='';
-  document.getElementById('signoutBtn').style.display='';
-}
-
-function signOut(){
-  sessionStorage.removeItem(KEY_STORE);
-  location.reload();
-}
 
 async function login(e){
   e.preventDefault();
@@ -137,9 +94,9 @@ async function login(e){
       btn.disabled=false; btn.textContent='Sign in';
       return false;
     }
-    // valid — remember the key for this tab and continue
+    // valid — remember the key for this tab and continue straight into the Platform
     sessionStorage.setItem(KEY_STORE, key);
-    location.href='portfolio.html';
+    location.href='platform/index.html';
   }catch(err){
     msg.className='msg msg-err';
     msg.textContent='✗ Could not reach the service. Try again in a moment.';
@@ -148,8 +105,8 @@ async function login(e){
   return false;
 }
 
-// If already signed in this tab, skip straight to the tools menu.
-if(sessionStorage.getItem(KEY_STORE)){ showTools(); }
+// If already signed in this tab, skip straight to the Platform.
+if(sessionStorage.getItem(KEY_STORE)){ location.replace('platform/index.html'); }
 </script>
 </body>
 </html>

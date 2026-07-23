@@ -33,12 +33,19 @@ function LucideIcon({ name, size = 18, strokeWidth = 1.75, color = 'currentColor
 const NAV = [
   { k: 'portfolio', label: 'Portfolio', icon: 'layout-grid' },
   { k: 'deepdive', label: 'Site Deep Dive', icon: 'activity' },
+  { k: 'grapher', label: 'Grapher', icon: 'line-chart' },
   { k: 'schedule', label: 'O&M Schedule', icon: 'clipboard-list' },
   { k: 'reports', label: 'Reports', icon: 'file-text' },
   { k: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
+function signOutOfAmmp(ammp) {
+  ammp.disconnect();
+  location.href = '../index.html';
+}
+
 function Sidebar({ nav, setNav, live, urgent }) {
+  const ammp = useAmmp();
   return (
     <aside style={{ width: 218, background: 'var(--br-dker)', color: '#fff', display: 'flex', flexDirection: 'column', flexShrink: 0, padding: '18px 14px' }}>
       <div style={{ padding: '0 4px 18px' }}><Logo /></div>
@@ -61,6 +68,7 @@ function Sidebar({ nav, setNav, live, urgent }) {
             <div style={{ fontSize: '0.7rem', fontWeight: 700 }}>AMMP {live ? 'connected' : 'offline'}</div>
             <div className="mono" style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.5)' }}>{live ? 'streaming via ammp-proxy' : 'authenticate to stream'}</div>
           </div>
+          {live && <button onClick={() => signOutOfAmmp(ammp)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: '0.6rem', textDecoration: 'underline', padding: 0 }}>Sign out</button>}
         </div>
       </div>
     </aside>
@@ -124,6 +132,8 @@ function AppShell() {
     title = 'O&M Schedule'; body = <div style={{ maxWidth: 1100 }}><Schedule onOpen={openSite} /></div>;
   } else if (nav === 'deepdive') {
     title = 'Site Deep Dive'; crumb = 'Single-site analysis'; body = <DeepDiveView live={live} />;
+  } else if (nav === 'grapher') {
+    title = 'Grapher'; crumb = 'Power vs inverter temperature, per AMMP asset'; body = <GrapherView />;
   } else if (nav === 'reports') {
     title = 'Reports'; body = <Placeholder title="Reports" />;
   } else if (nav === 'settings') {

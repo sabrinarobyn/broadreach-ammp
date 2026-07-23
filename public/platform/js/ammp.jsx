@@ -1,10 +1,10 @@
 /* ============================================================
    Broadreach Platform — AMMP Data API integration
-   Same-origin proxy conventions as ../index.html / ../portfolio.html:
+   Same-origin proxy conventions as ../index.html:
    POST /auth/token (x-api-key -> access_token), then
    GET /proxy/v1/... with Authorization: Bearer <token>.
-   The API key lives in sessionStorage only, shared with the other
-   ammp-proxy pages in this tab.
+   The API key lives in sessionStorage only, shared with ../index.html
+   in this tab.
    ============================================================ */
 
 const KEY_STORE = 'ammpKey';
@@ -43,7 +43,7 @@ async function fetchInverterHistoric(token, deviceId, dateFromIso, dateToIso, in
   return r.json();
 }
 
-// Same fuzzy heuristic as portfolio.html: match on the first word of either name.
+// Fuzzy match: a site and an asset are the same if either name starts with the other's first word.
 function matchSitesToAssets(sites, assets) {
   const bySite = new Map();
   assets.forEach((a) => {
@@ -141,7 +141,7 @@ function AmmpProvider({ sites, children }) {
     devicesCacheRef.current = new Map();
   }, []);
 
-  // Auto-connect if this tab already holds a key from index.html/portfolio.html.
+  // Auto-connect if this tab already holds a key from ../index.html.
   React.useEffect(() => {
     const stored = sessionStorage.getItem(KEY_STORE);
     if (stored) connect(stored);
