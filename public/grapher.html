@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AMMP — Power vs Inverter Temperature</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lato:ital,wght@0,300;0,400;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --brand:#5C8098;--brand-dk:#3D5C6E;--brand-lt:#D4DEF0;--brand-xlt:#EEF4F8;
+  --green:#477735;--green-lt:#DDEED5;--red:#9B1B1D;--red-lt:#F5D4D4;
+  --grey:#6B7280;--grey-lt:#E5E7EB;--grey-xlt:#F9FAFB;
+  --amber:#C86A1A;--amber-lt:#FAE8D0;
+  --ink:#1A1A1A;--ink-mid:#4B5563;--ink-light:#6B7280;
+  --white:#FFFFFF;--page:#F5F7F9;
+  --radius:14px;--shadow:0 2px 12px rgba(92,128,152,0.10),0 1px 3px rgba(92,128,152,0.06);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Lato',sans-serif;background:var(--page);color:var(--ink);}
+
+/* ── header ── */
+header{background:var(--white);border-bottom:3px solid var(--brand);box-shadow:0 2px 8px rgba(92,128,152,0.08);}
+.header-inner{max-width:1440px;margin:0 auto;padding:20px 40px 16px;display:flex;align-items:center;justify-content:space-between;gap:24px;}
+.header-title{font-family:'Bebas Neue',sans-serif;font-size:1.6rem;letter-spacing:2px;color:var(--brand);}
+.header-sub{font-size:0.72rem;color:var(--ink-light);font-family:'DM Mono',monospace;margin-top:2px;}
+.source-pill{display:inline-block;background:var(--brand-xlt);border:1px solid var(--brand-lt);color:var(--brand);font-size:0.65rem;padding:2px 9px;border-radius:20px;margin-top:5px;font-family:'DM Mono',monospace;}
+
+/* ── layout ── */
+main{max-width:1440px;margin:0 auto;padding:28px 40px 60px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;}
+
+/* ── cards ── */
+.card{background:var(--white);border-radius:var(--radius);padding:22px 22px 18px;box-shadow:var(--shadow);margin-bottom:18px;}
+.card-title{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:1.2px;color:var(--brand);margin-bottom:2px;}
+.card-sub{font-size:0.68rem;color:var(--ink-light);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:16px;font-family:'DM Mono',monospace;}
+.sec-heading{font-family:'Bebas Neue',sans-serif;font-size:1.4rem;letter-spacing:1.5px;color:var(--brand);margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid var(--grey-lt);}
+
+/* ── form elements ── */
+label{font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--ink-light);margin-bottom:5px;display:block;font-family:'Lato',sans-serif;}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--grey-lt);border-radius:8px;font-size:0.82rem;font-family:'Lato',sans-serif;background:var(--white);color:var(--ink);outline:none;transition:border-color 0.15s;}
+input:focus,select:focus{border-color:var(--brand);}
+.field-row{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;margin-bottom:12px;}
+.field-row label{margin:0;}
+
+/* ── buttons ── */
+button{padding:9px 20px;border:1px solid var(--grey-lt);border-radius:8px;background:var(--white);font-size:0.8rem;font-family:'Lato',sans-serif;font-weight:700;cursor:pointer;color:var(--ink);letter-spacing:0.3px;transition:all 0.15s;}
+button:hover{background:var(--brand-xlt);border-color:var(--brand-lt);color:var(--brand-dk);}
+.btn-primary{background:var(--brand);color:var(--white);border-color:var(--brand);}
+.btn-primary:hover{background:var(--brand-dk);border-color:var(--brand-dk);color:var(--white);}
+.btn-sm{padding:5px 13px;font-size:0.73rem;}
+
+/* ── notices ── */
+.notice{font-size:0.73rem;padding:8px 13px;border-radius:8px;margin-bottom:14px;font-family:'DM Mono',monospace;}
+.n-ok  {background:var(--green-lt);color:var(--green);}
+.n-err {background:var(--red-lt);color:var(--red);}
+.n-info{background:var(--brand-xlt);color:var(--brand);}
+
+/* ── status inline ── */
+.st{display:inline-flex;align-items:center;gap:5px;font-size:0.78rem;font-weight:700;font-family:'DM Mono',monospace;}
+.st-ok{color:var(--green);} .st-err{color:var(--red);} .st-pending{color:var(--grey);}
+
+/* ── step label ── */
+.step-label{font-size:0.63rem;font-weight:700;text-transform:uppercase;letter-spacing:0.9px;color:var(--ink-light);margin-bottom:12px;font-family:'DM Mono',monospace;}
+
+/* ── inverter chips ── */
+.inv-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.inv-chip{display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;border:1px solid var(--grey-lt);font-size:0.73rem;cursor:pointer;background:var(--white);user-select:none;font-family:'DM Mono',monospace;transition:all 0.15s;}
+.inv-chip:hover{border-color:var(--brand-lt);background:var(--brand-xlt);}
+.inv-chip.on{background:var(--brand);color:var(--white);border-color:var(--brand);}
+.inv-chip .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+
+/* ── tabs ── */
+.tab-row{display:flex;border-bottom:2px solid var(--grey-lt);margin-bottom:20px;gap:2px;}
+.tab-btn{padding:10px 22px 8px;border:none;background:transparent;font-family:'Lato',sans-serif;font-size:0.78rem;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:var(--ink-light);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;}
+.tab-btn:hover{color:var(--brand);}
+.tab-btn.active{color:var(--brand);border-bottom-color:var(--brand);}
+
+/* ── chart cards ── */
+.chart-card{background:var(--white);border-radius:var(--radius);padding:20px 22px 16px;box-shadow:var(--shadow);margin-bottom:18px;}
+.chart-card-title{font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:1.2px;color:var(--brand);margin-bottom:2px;}
+.chart-card-sub{font-size:0.65rem;color:var(--ink-light);font-family:'DM Mono',monospace;margin-bottom:14px;}
+canvas{max-height:300px;}
+
+
+/* ── interactive ts legend ── */
+.ts-legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
+.ts-leg-item{display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;border:1px solid var(--grey-lt);font-size:0.73rem;cursor:pointer;background:var(--white);user-select:none;font-family:'DM Mono',monospace;transition:all 0.15s;}
+.ts-leg-item:hover{border-color:var(--brand-lt);background:var(--brand-xlt);}
+.ts-leg-item.hidden{opacity:0.35;text-decoration:line-through;}
+.ts-leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.ts-leg-all{font-size:0.72rem;font-weight:700;padding:5px 14px;border-radius:20px;border:1px solid var(--grey-lt);cursor:pointer;font-family:'DM Mono',monospace;background:var(--white);transition:all 0.15s;letter-spacing:0.3px;}
+.ts-leg-all:hover{background:var(--brand-xlt);border-color:var(--brand-lt);color:var(--brand-dk);}
+
+/* ── err box ── */
+.err-box{background:var(--red-lt);border:1px solid #fca5a5;border-radius:8px;padding:10px 13px;font-size:0.72rem;color:var(--red);margin-top:10px;white-space:pre-wrap;font-family:'DM Mono',monospace;display:none;}
+
+/* ── hint text ── */
+.hint{font-size:0.68rem;color:var(--ink-light);font-family:'DM Mono',monospace;margin:4px 0 12px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div>
+      <div class="header-title">AMMP — Power vs Inverter Temperature</div>
+      <div class="header-sub">PV inverter monitoring · data-api.ammp.io</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="source-pill">AMMP Data API v1</div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- AUTH + ASSET side by side -->
+<div class="grid-2">
+
+  <div class="card">
+    <div class="step-label">1 · Authenticate</div>
+    <div id="proxyNotice" class="notice n-info">Checking proxy…</div>
+    <div class="field-row" style="grid-template-columns:80px 1fr;">
+      <label>API key</label>
+      <input type="password" id="apiKey" placeholder="x-api-key"/>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:4px;">
+      <button class="btn-primary" onclick="authenticate()">Authenticate</button>
+      <span id="authSt" class="st" style="display:none;"></span>
+    </div>
+  </div>
+
+  <div class="card" id="assetCard" style="display:none;">
+    <div class="step-label">2 · Select asset</div>
+    <div class="field-row" style="grid-template-columns:70px 1fr;">
+      <label>Asset</label>
+      <select id="assetSelect" onchange="onAssetChange()">
+        <option value="">— choose an asset —</option>
+      </select>
+    </div>
+    <span id="assetSt" class="st" style="display:none;margin-top:6px;"></span>
+  </div>
+
+</div>
+
+<!-- CONFIG -->
+<div class="card" id="configCard" style="display:none;">
+  <div class="step-label">3 · Configure</div>
+
+  <div class="field-row" style="align-items:flex-start;">
+    <label style="padding-top:6px;">Inverters</label>
+    <div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button class="btn-sm" onclick="selAll()">All</button>
+        <button class="btn-sm" onclick="selNone()">None</button>
+      </div>
+      <div class="inv-list" id="invList"></div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:12px;margin-bottom:0;">
+    <div class="field-row" style="grid-template-columns:60px 1fr;">
+      <label>From</label>
+      <input type="date" id="dateFrom"/>
+    </div>
+    <div class="field-row" style="grid-template-columns:40px 1fr;">
+      <label>To</label>
+      <input type="date" id="dateTo"/>
+    </div>
+  </div>
+
+  <div class="field-row" style="margin-top:4px;">
+    <label>Interval</label>
+    <select id="interval">
+      <option value="15m" selected>15 minutes</option>
+      <option value="5m">5 minutes</option>
+    </select>
+  </div>
+  <div class="hint">Requests split into 7-day chunks automatically. Large ranges or many inverters may take a moment.</div>
+
+  <div style="display:flex;gap:10px;align-items:center;">
+    <button class="btn-primary" onclick="loadData()">Load data &amp; plot</button>
+    <span id="loadSt" class="st" style="display:none;"></span>
+  </div>
+  <div class="err-box" id="errBox"></div>
+</div>
+
+<!-- CHARTS -->
+<div id="chartSection" style="display:none;">
+
+  <div class="sec-heading">Charts</div>
+
+  <div class="tab-row">
+    <button class="tab-btn active" onclick="switchTab('scatter',this)">Power vs Inverter Temp</button>
+    <button class="tab-btn" onclick="switchTab('ts',this)">Time Series — Dual Axis</button>
+  </div>
+
+  <!-- Scatter -->
+  <div id="scatterView">
+    <div class="chart-card">
+      <div class="chart-card-title">AC Power vs Inverter Temperature</div>
+      <div class="chart-card-sub" id="scatterSub">Each point = one interval. X = inverter temp (°C) · Y = AC power (kW)</div>
+      <canvas id="scatterChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Time series: injected per inverter -->
+  <div id="tsView" style="display:none;">
+    <div class="chart-card" style="padding-bottom:14px;">
+      <div class="chart-card-title" style="margin-bottom:8px;">Inverter visibility</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button class="ts-leg-all" onclick="tsToggleAll()">Hide all</button>
+        <div class="ts-legend" id="tsLegend"></div>
+      </div>
+    </div>
+    <div id="tsCharts"></div>
+  </div>
+
+</div>
+
+</main>
+
+<script>
+const COLORS=['#2563eb','#16a34a','#dc2626','#d97706','#7c3aed','#0891b2','#db2777','#65a30d','#ea580c','#6366f1','#0d9488','#9333ea'];
+const GRID={color:'#EEF1F4'};
+const TICK={font:{family:'DM Mono',size:10},color:'#9CA3AF'};
+
+let token='', currentAssetId='', inverters=[], selected=new Set();
+let scatterInst; let tsInstances=[]; let tsInvState={}; // devId -> visible bool
+
+// ── proxy ────────────────────────────────────────────────────────────────────
+async function checkProxy(){
+  const n=document.getElementById('proxyNotice');
+  n.className='notice n-info'; n.textContent='Connecting…';
+  try{
+    const r=await fetch(`/health`,{signal:AbortSignal.timeout(4000)});
+    if(r.ok){n.className='notice n-ok';n.textContent='✓ Connected. Enter your API key to authenticate.';}
+    else throw 0;
+  }catch{n.className='notice n-err';n.textContent='✗ Could not reach the service. Refresh in a moment.';}
+}
+
+// ── auth ─────────────────────────────────────────────────────────────────────
+async function authenticate(){
+  const apiKey=document.getElementById('apiKey').value.trim();
+  const s=document.getElementById('authSt');
+  s.style.display='';s.className='st st-pending';s.textContent='Authenticating…';
+  token='';
+  try{
+    const r=await fetch(`/auth/token`,{method:'POST',headers:{'x-api-key':apiKey}});
+    const d=await r.json();
+    if(!r.ok||!d.access_token){s.className='st st-err';s.textContent=`✗ ${r.status}: ${JSON.stringify(d)}`;return;}
+    token=d.access_token;
+    s.className='st st-ok';s.textContent='✓ Authenticated.';
+    await loadAssets();
+  }catch(e){s.className='st st-err';s.textContent='✗ '+e.message;}
+}
+
+// ── assets ───────────────────────────────────────────────────────────────────
+async function loadAssets(){
+  const r=await fetch(`/proxy/v1/assets`,{headers:{Authorization:`Bearer ${token}`}});
+  const assets=await r.json();
+  const sel=document.getElementById('assetSelect');
+  sel.innerHTML='<option value="">— choose an asset —</option>';
+  assets.forEach(a=>{
+    const o=document.createElement('option');
+    o.value=a.asset_id;
+    o.textContent=a.asset_name+(a.long_name?` — ${a.long_name}`:'')+( a.country_code?` (${a.country_code})`:'');
+    sel.appendChild(o);
+  });
+  document.getElementById('assetCard').style.display='';
+
+  // If we arrived from the portfolio page, auto-select the matching asset.
+  const wanted=sessionStorage.getItem('selectedSite');
+  if(wanted){
+    sessionStorage.removeItem('selectedSite');
+    const w=wanted.toLowerCase();
+    let match=[...sel.options].find(o=>o.textContent.toLowerCase().includes(w));
+    if(!match){ // looser: match on first word of the site name
+      const first=w.split(' ')[0];
+      match=[...sel.options].find(o=>o.value && o.textContent.toLowerCase().includes(first));
+    }
+    if(match){ sel.value=match.value; onAssetChange(); }
+  }
+}
+
+// ── asset change ─────────────────────────────────────────────────────────────
+async function onAssetChange(){
+  const sel=document.getElementById('assetSelect');
+  currentAssetId=sel.value;
+  if(!currentAssetId)return;
+  const s=document.getElementById('assetSt');
+  s.style.display='';s.className='st st-pending';s.textContent='Loading devices…';
+  const r=await fetch(`/proxy/v1/assets/${currentAssetId}/devices`,{headers:{Authorization:`Bearer ${token}`}});
+  const data=await r.json();
+  inverters=(data.devices||[]).filter(d=>d.device_type==='pv_inverter');
+  if(!inverters.length){s.className='st st-err';s.textContent='No PV inverters found.';return;}
+  s.className='st st-ok';s.textContent=`✓ ${inverters.length} inverter${inverters.length!==1?'s':''} found.`;
+  selected=new Set(inverters.map(i=>i.device_id));
+  renderChips();
+  const to=new Date(),from=new Date(to);from.setDate(from.getDate()-7);
+  document.getElementById('dateTo').value=to.toISOString().slice(0,10);
+  document.getElementById('dateFrom').value=from.toISOString().slice(0,10);
+  document.getElementById('configCard').style.display='';
+  document.getElementById('chartSection').style.display='none';
+  document.getElementById('errBox').style.display='none';
+}
+
+// ── chips ─────────────────────────────────────────────────────────────────────
+function renderChips(){
+  const c=document.getElementById('invList');c.innerHTML='';
+  inverters.forEach((inv,i)=>{
+    const chip=document.createElement('div');
+    chip.className='inv-chip'+(selected.has(inv.device_id)?' on':'');
+    chip.innerHTML=`<span class="dot" style="background:${COLORS[i%COLORS.length]}"></span>${inv.device_name}`;
+    chip.onclick=()=>{
+      if(selected.has(inv.device_id)){selected.delete(inv.device_id);chip.classList.remove('on');}
+      else{selected.add(inv.device_id);chip.classList.add('on');}
+    };
+    c.appendChild(chip);
+  });
+}
+function selAll(){inverters.forEach(i=>selected.add(i.device_id));renderChips();}
+function selNone(){selected.clear();renderChips();}
+
+// ── date chunking ─────────────────────────────────────────────────────────────
+function dateChunks(fromStr,toStr,maxDays=7){
+  const chunks=[];
+  let cur=new Date(fromStr+'T00:00:00Z');
+  const end=new Date(toStr+'T23:59:59Z');
+  while(cur<end){
+    const ce=new Date(Math.min(cur.getTime()+maxDays*86400000-1,end.getTime()));
+    chunks.push({from:cur.toISOString(),to:ce.toISOString()});
+    cur=new Date(ce.getTime()+1000);
+  }
+  return chunks;
+}
+
+async function fetchChunked(urlFn,mergeFn){
+  const from=document.getElementById('dateFrom').value;
+  const to=document.getElementById('dateTo').value;
+  const iv=document.getElementById('interval').value;
+  const chunks=dateChunks(from,to,7);
+  let merged=null;
+  for(const chunk of chunks){
+    const url=urlFn(chunk.from,chunk.to,iv);
+    const r=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+    if(!r.ok){const txt=await r.text();throw new Error(`${r.status} ${r.statusText}: ${txt}`);}
+    const d=await r.json();
+    merged=merged?mergeFn(merged,d):d;
+  }
+  return merged;
+}
+
+function mergeInverter(a,b){
+  const result=JSON.parse(JSON.stringify(a));
+  Object.keys(b).forEach(k=>{
+    if(b[k]&&typeof b[k]==='object'&&Array.isArray(b[k].datasets)){
+      if(result[k]&&Array.isArray(result[k].datasets)){
+        result[k].datasets.forEach((ds,i)=>{if(b[k].datasets[i])ds.data=[...ds.data,...(b[k].datasets[i].data||[])];});
+      }else result[k]=b[k];
+    }
+  });
+  return result;
+}
+
+// ── load ──────────────────────────────────────────────────────────────────────
+async function loadData(){
+  if(!currentAssetId){alert('Select an asset first.');return;}
+  if(!selected.size){alert('Select at least one inverter.');return;}
+  const s=document.getElementById('loadSt');
+  const eb=document.getElementById('errBox');
+  s.style.display='';s.className='st st-pending';s.textContent='Fetching…';
+  eb.style.display='none';
+  document.getElementById('chartSection').style.display='none';
+  try{
+    const selectedIds=[...selected];
+    s.textContent=`Fetching ${selectedIds.length} inverter(s)…`;
+    const invResults=await Promise.all(selectedIds.map(async devId=>{
+      const data=await fetchChunked(
+        (f,t,iv)=>`/proxy/v1/devices/${devId}/historic-data/pv-inverter?date_from=${f}&date_to=${t}&interval=${iv}`,
+        mergeInverter
+      );
+      return{devId,data};
+    }));
+    s.className='st st-ok';s.textContent='✓ Loaded — rendering…';
+    renderCharts(invResults);
+  }catch(e){
+    s.className='st st-err';s.textContent='✗ Error.';
+    eb.style.display='';eb.textContent=e.message;
+  }
+}
+
+// ── tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(tab,btn){
+  document.querySelectorAll('.tab-btn').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('scatterView').style.display=tab==='scatter'?'':'none';
+  document.getElementById('tsView').style.display=tab==='ts'?'':'none';
+}
+
+function fmt(t){
+  const d=new Date(t);
+  return d.toLocaleDateString('en-ZA',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+function renderCharts(invResults){
+  const invDatasets=invResults.map(({devId,data})=>{
+    const inv=inverters.find(i=>i.device_id===devId);
+    const color=COLORS[inverters.indexOf(inv)%COLORS.length];
+    const powerSeries=data?.pv_inverter_ac_P_total?.datasets?.[0]?.data||[];
+    const tempSeries =data?.pv_inverter_temp?.datasets?.[0]?.data||[];
+    return{name:inv?.device_name||devId,color,powerSeries,tempSeries};
+  }).filter(d=>d.powerSeries.length>0);
+
+  if(!invDatasets.length){
+    document.getElementById('loadSt').className='st st-err';
+    document.getElementById('loadSt').textContent='✗ No power data returned.';
+    return;
+  }
+
+  // ── shared y-axis limits ──────────────────────────────────────────────────
+  let maxPower=0,minTemp=Infinity,maxTemp=-Infinity;
+  invDatasets.forEach(inv=>{
+    inv.powerSeries.forEach(d=>{if(d.value!=null)maxPower=Math.max(maxPower,d.value/1000);});
+    inv.tempSeries.forEach(d=>{
+      if(d.value!=null){minTemp=Math.min(minTemp,d.value);maxTemp=Math.max(maxTemp,d.value);}
+    });
+  });
+  const powerMax=Math.ceil(maxPower*1.1)||10;
+  const tempPad=(maxTemp-minTemp)*0.1||2;
+  const tempMin=minTemp===Infinity?0:Math.floor(minTemp-tempPad);
+  const tempMax=maxTemp===-Infinity?80:Math.ceil(maxTemp+tempPad);
+
+  document.getElementById('chartSection').style.display='';
+
+  // ── scatter ───────────────────────────────────────────────────────────────
+  const scatterDatasets=invDatasets.map(inv=>{
+    const tMap={};
+    inv.tempSeries.forEach(d=>{if(d.value!=null)tMap[d.date]=d.value;});
+    return{
+      label:inv.name,
+      data:inv.powerSeries.filter(d=>d.value!=null&&tMap[d.date]!=null).map(d=>({x:+tMap[d.date].toFixed(1),y:+(d.value/1000).toFixed(2)})),
+      backgroundColor:inv.color+'aa',pointRadius:3,pointHoverRadius:5,
+    };
+  });
+  const totalPts=scatterDatasets.reduce((s,d)=>s+d.data.length,0);
+  const sub=document.getElementById('scatterSub');
+  sub.textContent=totalPts>0
+    ?`${totalPts.toLocaleString()} matched points across ${invDatasets.length} inverter(s).`
+    :'No inverter temperature data (pv_inverter_temp) found for this period.';
+  sub.style.color=totalPts>0?'':'var(--red)';
+
+  if(scatterInst)scatterInst.destroy();
+  scatterInst=new Chart(document.getElementById('scatterChart'),{
+    type:'scatter',
+    data:{datasets:scatterDatasets},
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{position:'bottom',labels:{font:{family:'DM Mono',size:11},color:'#4B5563'}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y} kW @ ${ctx.parsed.x}°C`}}
+      },
+      scales:{
+        x:{title:{display:true,text:'Inverter Temperature (°C)',font:{family:'DM Mono',size:11},color:'#6B7280'},grid:GRID,ticks:TICK},
+        y:{title:{display:true,text:'AC Power (kW)',font:{family:'DM Mono',size:11},color:'#6B7280'},min:0,max:powerMax,grid:GRID,ticks:TICK}
+      }
+    }
+  });
+
+  // ── time series (one dual-axis chart per inverter, shared limits) ─────────
+  tsInstances.forEach(c=>c.destroy());
+  tsInstances=[];
+  tsInvState={};
+  const container=document.getElementById('tsCharts');
+  container.innerHTML='';
+  const legend=document.getElementById('tsLegend');
+  legend.innerHTML='';
+
+  invDatasets.forEach((inv,idx)=>{
+    tsInvState[inv.name]=true; // visible by default
+
+    const allTs=[...new Set([...inv.powerSeries.map(d=>d.date),...inv.tempSeries.map(d=>d.date)])].sort();
+    const tMap={};
+    inv.tempSeries.forEach(d=>{if(d.value!=null)tMap[d.date]=d.value;});
+
+    // build chart card
+    const wrap=document.createElement('div');
+    wrap.className='chart-card';
+    wrap.id=`ts_wrap_${idx}`;
+    wrap.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+        <div class="chart-card-title">${inv.name}</div>
+        <button class="ts-leg-all btn-sm" onclick="tsSingleToggle('${inv.name}',${idx},this)" style="font-size:0.68rem;padding:3px 11px;">Hide</button>
+      </div>
+      <div class="chart-card-sub">AC power (kW) left · inverter temp (°C) right — dashed</div>
+      <canvas id="ts_${idx}"></canvas>`;
+    container.appendChild(wrap);
+
+    // add to shared legend
+    const chip=document.createElement('div');
+    chip.className='ts-leg-item';
+    chip.id=`ts_leg_${idx}`;
+    chip.innerHTML=`<span class="ts-leg-dot" style="background:${inv.color}"></span>${inv.name}`;
+    chip.onclick=()=>tsSingleToggle(inv.name,idx,null,chip);
+    legend.appendChild(chip);
+
+    const inst=new Chart(document.getElementById(`ts_${idx}`),{
+      type:'line',
+      data:{
+        labels:allTs.map(fmt),
+        datasets:[
+          {
+            label:'AC Power (kW)',
+            data:allTs.map(t=>{const p=inv.powerSeries.find(d=>d.date===t);return p?.value!=null?+(p.value/1000).toFixed(2):null;}),
+            borderColor:inv.color,backgroundColor:inv.color+'18',
+            borderWidth:1.5,pointRadius:0,tension:0.3,spanGaps:false,yAxisID:'yPower',
+          },
+          {
+            label:'Inverter Temp (°C)',
+            data:allTs.map(t=>tMap[t]!=null?+tMap[t].toFixed(1):null),
+            borderColor:'#C86A1A',backgroundColor:'#C86A1A18',
+            borderWidth:1.5,pointRadius:0,tension:0.3,spanGaps:false,
+            yAxisID:'yTemp',borderDash:[5,3],
+          }
+        ]
+      },
+      options:{
+        responsive:true,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{
+            position:'bottom',
+            labels:{font:{family:'DM Mono',size:11},color:'#4B5563'},
+            onClick:(e,item,legend)=>{
+              // toggle individual dataset (power or temp line) within the chart
+              const ci=legend.chart;
+              const meta=ci.getDatasetMeta(item.datasetIndex);
+              meta.hidden=!meta.hidden;
+              ci.update();
+            }
+          },
+        },
+        scales:{
+          x:{ticks:{...TICK,maxTicksLimit:12,maxRotation:30},grid:GRID},
+          yPower:{type:'linear',position:'left',min:0,max:powerMax,
+            title:{display:true,text:'AC Power (kW)',font:{family:'DM Mono',size:10},color:'#6B7280'},
+            grid:GRID,ticks:TICK},
+          yTemp:{type:'linear',position:'right',min:tempMin,max:tempMax,
+            title:{display:true,text:'Temp (°C)',font:{family:'DM Mono',size:10},color:'#6B7280'},
+            grid:{drawOnChartArea:false},ticks:TICK}
+        }
+      }
+    });
+    tsInstances.push(inst);
+  });
+}
+
+// ── toggle a single inverter's entire chart card ───────────────────────────
+function tsSingleToggle(name, idx, cardBtn, legendChip){
+  const wrap=document.getElementById(`ts_wrap_${idx}`);
+  const chip=legendChip||document.getElementById(`ts_leg_${idx}`);
+  const btn=cardBtn||wrap.querySelector('button');
+  const visible=tsInvState[name];
+
+  if(visible){
+    // hide
+    wrap.style.display='none';
+    chip.classList.add('hidden');
+    if(btn)btn.textContent='Show';
+    tsInvState[name]=false;
+  } else {
+    // show
+    wrap.style.display='';
+    chip.classList.remove('hidden');
+    if(btn)btn.textContent='Hide';
+    tsInvState[name]=true;
+    // force chart resize after becoming visible
+    tsInstances[idx]?.resize();
+  }
+  updateToggleAllBtn();
+}
+
+// ── toggle all ────────────────────────────────────────────────────────────
+function tsToggleAll(){
+  const anyVisible=Object.values(tsInvState).some(v=>v);
+  Object.keys(tsInvState).forEach((name,idx)=>{
+    if(anyVisible && tsInvState[name]) tsSingleToggle(name,idx,null,null);
+    else if(!anyVisible && !tsInvState[name]) tsSingleToggle(name,idx,null,null);
+  });
+  updateToggleAllBtn();
+}
+
+function updateToggleAllBtn(){
+  const btn=document.querySelector('.ts-leg-all');
+  if(!btn)return;
+  const anyVisible=Object.values(tsInvState).some(v=>v);
+  btn.textContent=anyVisible?'Hide all':'Show all';
+}
+
+// ── init ──────────────────────────────────────────────────────────────────────
+checkProxy();
+const _to=new Date(),_fr=new Date(_to);_fr.setDate(_fr.getDate()-7);
+document.getElementById('dateTo').value=_to.toISOString().slice(0,10);
+document.getElementById('dateFrom').value=_fr.toISOString().slice(0,10);
+</script>
+</body>
+</html>

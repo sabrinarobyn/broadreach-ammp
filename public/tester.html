@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AMMP Asset Tester</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f3; color: #1a1a18; min-height: 100vh; padding: 2rem; }
+  h1 { font-size: 18px; font-weight: 500; margin-bottom: 1.5rem; }
+  .card { background: #fff; border: 0.5px solid #e0dfd8; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+  label { display: block; font-size: 13px; color: #666; margin-bottom: 5px; }
+  input { width: 100%; padding: 8px 10px; border: 0.5px solid #ccc; border-radius: 8px; font-size: 13px; font-family: inherit; background: #fff; color: #1a1a18; outline: none; }
+  input:focus { border-color: #888; }
+  .field-row { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .field-row label { margin: 0; }
+  button { padding: 8px 18px; border: 0.5px solid #ccc; border-radius: 8px; background: #fff; font-size: 13px; font-family: inherit; cursor: pointer; color: #1a1a18; }
+  button:hover { background: #f0efea; }
+  button:active { transform: scale(0.98); }
+  .btn-primary { background: #1a1a18; color: #fff; border-color: #1a1a18; font-weight: 500; }
+  .btn-primary:hover { background: #333; }
+  .notice { font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
+  .notice-ok { background: #e8f5ea; color: #2d7a3a; }
+  .notice-err { background: #fef2f2; color: #b91c1c; }
+  .notice-info { background: #f5f5f3; color: #666; }
+  .notice-warn { background: #fffbeb; color: #92400e; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 1rem; }
+  .stat { background: #f5f5f3; border-radius: 8px; padding: 10px 12px; }
+  .stat-label { font-size: 11px; color: #888; margin-bottom: 2px; }
+  .stat-val { font-size: 22px; font-weight: 500; }
+  .asset-card { background: #fff; border: 0.5px solid #e0dfd8; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 10px; }
+  .asset-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .asset-icon { width: 36px; height: 36px; border-radius: 8px; background: #e8f0fd; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .asset-name { font-weight: 500; font-size: 15px; }
+  .asset-sub { font-size: 13px; color: #888; }
+  .country-badge { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 20px; background: #f5f5f3; color: #666; border: 0.5px solid #e0dfd8; flex-shrink: 0; }
+  .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+  .kv-label { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 0.4px; }
+  .kv-val { font-size: 13px; font-weight: 500; word-break: break-all; }
+  .mono { font-family: 'Courier New', monospace; font-size: 11px; }
+  .divider { border: none; border-top: 0.5px solid #e0dfd8; margin: 10px 0; }
+  .tag-pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px; background: #f5f5f3; color: #666; border: 0.5px solid #e0dfd8; margin: 2px; }
+  .warn-pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px; background: #fffbeb; color: #92400e; margin: 2px; }
+  .raw-box { background: #f5f5f3; border-radius: 8px; border: 0.5px solid #e0dfd8; padding: 12px; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto; }
+  .view-toggle { display: flex; border: 0.5px solid #ccc; border-radius: 8px; overflow: hidden; }
+  .view-btn { flex: 1; border: none; border-radius: 0; padding: 6px 14px; font-size: 13px; background: #fff; cursor: pointer; color: #666; font-family: inherit; }
+  .view-btn.active { background: #f0efea; color: #1a1a18; font-weight: 500; }
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 500; }
+  .status.ok { color: #2d7a3a; }
+  .status.err { color: #b91c1c; }
+  .status.pending { color: #666; }
+  #timeLabel { font-size: 12px; color: #888; margin-left: auto; }
+  .step-label { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: #aaa; margin-bottom: 8px; }
+  .token-display { font-family: monospace; font-size: 11px; color: #666; word-break: break-all; margin-top: 6px; background: #f5f5f3; padding: 6px 8px; border-radius: 6px; display: none; }
+</style>
+</head>
+<body>
+
+<h1>⚡ AMMP API tester</h1>
+
+<div class="card">
+  <div class="step-label">Step 1 — authenticate</div>
+  <div id="proxyNotice" class="notice notice-info">Connecting…</div>
+
+  <div class="field-row">
+    <label>API key</label>
+    <input type="password" id="apiKey" placeholder="Paste your x-api-key" />
+  </div>
+  <div style="display:flex; gap:8px; margin-top:10px; align-items:center;">
+    <button class="btn-primary" onclick="getToken()">Get bearer token</button>
+    <span id="authStatus" class="status" style="display:none;"></span>
+  </div>
+  <div id="tokenDisplay" class="token-display"></div>
+</div>
+
+<div class="card">
+  <div class="step-label">Step 2 — fetch assets</div>
+  <div class="field-row">
+    <label>org_id (optional)</label>
+    <input type="text" id="orgId" placeholder="Filter by org UUID" style="font-family: monospace;" />
+  </div>
+  <div style="display:flex; gap:8px; margin-top:10px; align-items:center;">
+    <button class="btn-primary" onclick="fetchAssets()">Fetch assets</button>
+    <span id="fetchStatus" class="status" style="display:none;"></span>
+    <span id="timeLabel"></span>
+  </div>
+</div>
+
+<div id="results" style="display:none;">
+  <div class="stat-grid" id="summaryStats"></div>
+  <div class="toolbar">
+    <div class="view-toggle">
+      <button class="view-btn active" onclick="setView('cards', this)">Cards</button>
+      <button class="view-btn" onclick="setView('raw', this)">Raw JSON</button>
+    </div>
+    <input style="width:200px; font-size:13px;" type="text" id="searchBox" placeholder="Filter assets…" oninput="renderCards()" />
+  </div>
+  <div id="cardsView"></div>
+  <div id="rawView" style="display:none;"><div class="raw-box" id="rawBox"></div></div>
+</div>
+
+<div id="emptyState" style="display:none; text-align:center; padding:2rem; color:#888; font-size:14px;">
+  <div style="font-size:32px; margin-bottom:8px;">○</div>
+  <span id="emptyMsg"></span>
+</div>
+
+<script>
+let allAssets = [];
+let rawResponse = '';
+let bearerToken = '';
+
+async function checkProxy() {
+  const notice = document.getElementById('proxyNotice');
+  notice.className = 'notice notice-info';
+  notice.textContent = 'Connecting…';
+  try {
+    const res = await fetch(`/health`, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      notice.className = 'notice notice-ok';
+      notice.textContent = '✓ Connected. Paste your API key below.';
+    } else throw new Error();
+  } catch {
+    notice.className = 'notice notice-err';
+    notice.textContent = '✗ Could not reach the service. Refresh the page in a moment.';
+  }
+}
+
+async function getToken() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const status = document.getElementById('authStatus');
+  const tokenDisplay = document.getElementById('tokenDisplay');
+
+  if (!apiKey) { alert('Paste your API key first.'); return; }
+
+  status.style.display = '';
+  status.className = 'status pending';
+  status.textContent = 'Getting token…';
+  tokenDisplay.style.display = 'none';
+  bearerToken = '';
+
+  try {
+    const res = await fetch(`/auth/token`, {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey }
+    });
+    const data = await res.json();
+    if (!res.ok || !data.access_token) {
+      status.className = 'status err';
+      status.textContent = `✗ ${res.status}: ${JSON.stringify(data)}`;
+      return;
+    }
+    bearerToken = data.access_token;
+    status.className = 'status ok';
+    status.textContent = '✓ Token obtained — ready to fetch.';
+    tokenDisplay.style.display = '';
+    tokenDisplay.textContent = bearerToken.slice(0, 40) + '…';
+  } catch(e) {
+    status.className = 'status err';
+    status.textContent = '✗ Could not reach proxy: ' + e.message;
+  }
+}
+
+async function fetchAssets() {
+  if (!bearerToken) { alert('Get a bearer token first (Step 1).'); return; }
+  const orgId = document.getElementById('orgId').value.trim();
+  const status = document.getElementById('fetchStatus');
+  const timeLabel = document.getElementById('timeLabel');
+
+  status.style.display = '';
+  status.className = 'status pending';
+  status.textContent = 'Fetching…';
+  timeLabel.textContent = '';
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'none';
+
+  let url = `/proxy/v1/assets`;
+  if (orgId) url += '?org_id=' + encodeURIComponent(orgId);
+
+  const t0 = performance.now();
+  try {
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${bearerToken}`, 'Content-Type': 'application/json' }
+    });
+    const elapsed = Math.round(performance.now() - t0);
+    timeLabel.textContent = elapsed + 'ms';
+    const text = await res.text();
+    rawResponse = text;
+
+    if (!res.ok) {
+      status.className = 'status err';
+      status.textContent = `✗ ${res.status} ${res.statusText}`;
+      document.getElementById('emptyState').style.display = '';
+      document.getElementById('emptyMsg').textContent = `Error ${res.status}: ${text.slice(0, 300)}`;
+      return;
+    }
+
+    let data;
+    try { data = JSON.parse(text); } catch { data = []; }
+    if (!Array.isArray(data)) data = data.assets || data.data || [data];
+
+    allAssets = data;
+    status.className = 'status ok';
+    status.textContent = `✓ 200 OK · ${data.length} asset${data.length !== 1 ? 's' : ''}`;
+
+    if (data.length === 0) {
+      document.getElementById('emptyState').style.display = '';
+      document.getElementById('emptyMsg').textContent = 'No assets returned.';
+    } else {
+      document.getElementById('results').style.display = '';
+      renderSummary(data);
+      renderCards();
+    }
+  } catch(e) {
+    timeLabel.textContent = Math.round(performance.now() - t0) + 'ms';
+    status.className = 'status err';
+    status.textContent = '✗ ' + e.message;
+  }
+}
+
+function renderSummary(data) {
+  const countries = [...new Set(data.map(a => a.country_code).filter(Boolean))];
+  const totalPV = data.reduce((s, a) => s + (a.total_pv_power || 0), 0);
+  const withWarnings = data.filter(a => a.warnings && a.warnings.length > 0).length;
+  document.getElementById('summaryStats').innerHTML = `
+    <div class="stat"><div class="stat-label">Total assets</div><div class="stat-val">${data.length}</div></div>
+    <div class="stat"><div class="stat-label">Countries</div><div class="stat-val">${countries.length || '—'}</div></div>
+    <div class="stat"><div class="stat-label">Total PV (kW)</div><div class="stat-val">${totalPV ? (totalPV/1000).toLocaleString() : '—'}</div></div>
+    <div class="stat"><div class="stat-label">With warnings</div><div class="stat-val">${withWarnings}</div></div>
+  `;
+}
+
+function setView(v, btn) {
+  document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('cardsView').style.display = v === 'cards' ? '' : 'none';
+  document.getElementById('rawView').style.display = v === 'raw' ? '' : 'none';
+  if (v === 'raw') {
+    try { document.getElementById('rawBox').textContent = JSON.stringify(JSON.parse(rawResponse), null, 2); }
+    catch { document.getElementById('rawBox').textContent = rawResponse; }
+  }
+}
+
+function renderCards() {
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  const filtered = allAssets.filter(a =>
+    !q ||
+    (a.asset_name||'').toLowerCase().includes(q) ||
+    (a.long_name||'').toLowerCase().includes(q) ||
+    (a.country_code||'').toLowerCase().includes(q) ||
+    (a.region||'').toLowerCase().includes(q) ||
+    (a.place||'').toLowerCase().includes(q)
+  );
+
+  document.getElementById('cardsView').innerHTML = filtered.map(a => {
+    const tags = a.tags ? Object.entries(a.tags).map(([k,v]) => `<span class="tag-pill">${k}: ${JSON.stringify(v)}</span>`).join('') : '';
+    const warnings = (a.warnings||[]).map(w => `<span class="warn-pill">⚠ ${w}</span>`).join('');
+    const hasMeta = tags || warnings;
+    const pvKw = a.total_pv_power != null ? ((+a.total_pv_power)/1000).toLocaleString(undefined,{maximumFractionDigits:1}) + ' kW' : null;
+    return `
+    <div class="asset-card">
+      <div class="asset-header">
+        <div class="asset-icon">☀️</div>
+        <div style="min-width:0;">
+          <div class="asset-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.asset_name || 'Unnamed asset'}</div>
+          <div class="asset-sub">${a.long_name || a.asset_id || ''}</div>
+        </div>
+        ${a.country_code ? `<span class="country-badge">${a.country_code}</span>` : ''}
+      </div>
+      <div class="kv-grid">
+        ${a.asset_id ? `<div><div class="kv-label">Asset ID</div><div class="kv-val mono">${a.asset_id}</div></div>` : ''}
+        ${a.org_id ? `<div><div class="kv-label">Org ID</div><div class="kv-val mono">${a.org_id}</div></div>` : ''}
+        ${a.region ? `<div><div class="kv-label">Region</div><div class="kv-val">${a.region}</div></div>` : ''}
+        ${a.place ? `<div><div class="kv-label">Place</div><div class="kv-val">${a.place}</div></div>` : ''}
+        ${(a.latitude != null && a.longitude != null) ? `<div><div class="kv-label">Coordinates</div><div class="kv-val">${(+a.latitude).toFixed(4)}, ${(+a.longitude).toFixed(4)}</div></div>` : ''}
+        ${pvKw ? `<div><div class="kv-label">Total PV power</div><div class="kv-val">${pvKw}</div></div>` : ''}
+        ${a.expected_pr != null ? `<div><div class="kv-label">Expected PR</div><div class="kv-val">${(+a.expected_pr * 100).toFixed(1)}%</div></div>` : ''}
+        ${a.co2_offset_factor != null ? `<div><div class="kv-label">CO₂ offset factor</div><div class="kv-val">${a.co2_offset_factor}</div></div>` : ''}
+        ${a.modeled_loss != null ? `<div><div class="kv-label">Modeled loss</div><div class="kv-val">${a.modeled_loss}</div></div>` : ''}
+        ${a.beta != null ? `<div><div class="kv-label">Beta (%/°C)</div><div class="kv-val">${a.beta}</div></div>` : ''}
+        ${a.tref != null ? `<div><div class="kv-label">T ref (°C)</div><div class="kv-val">${a.tref}</div></div>` : ''}
+      </div>
+      ${hasMeta ? `<hr class="divider" /><div>${tags}${warnings}</div>` : ''}
+    </div>`;
+  }).join('') || '<p style="color:#888; font-size:14px;">No assets match your filter.</p>';
+}
+
+checkProxy();
+</script>
+</body>
+</html>

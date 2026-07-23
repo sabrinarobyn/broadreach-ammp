@@ -1,0 +1,11 @@
+# Render Blueprint — deploys the AMMP proxy + dashboard as one web service.
+# In Render: New > Blueprint, point it at this repo, and it reads this file.
+services:
+  - type: web
+    name: broadreach-ammp
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true

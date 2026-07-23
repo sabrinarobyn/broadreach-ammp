@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Broadreach — AMMP Monitoring</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lato:wght@300;400;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --br-xlt:#EEF4F8;--br-lt:#D4DEF0;--br:#5C8098;--br-dk:#3D5C6E;
+  --page:#F5F7F9;--grey-lt:#E5E7EB;--grey:#6B7280;--ink:#1A1A1A;--white:#FFFFFF;
+  --ok-bg:#DDEED5;--ok-fg:#2f5222;--err-bg:#F5D4D4;--err-fg:#9B1B1D;
+  --radius:10px;--radius-lg:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Lato',sans-serif;background:var(--page);color:var(--ink);min-height:100vh;}
+header{background:var(--br-dk);}
+.header-inner{max-width:1000px;margin:0 auto;padding:16px 32px;display:flex;align-items:center;gap:12px;}
+.wordmark-t{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#fff;}
+.wordmark-s{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--br-lt);text-transform:uppercase;}
+.accent{height:1.5px;background:var(--br-lt);}
+main{max-width:1000px;margin:0 auto;padding:40px 32px 60px;}
+.lead{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:2px;color:var(--br);margin-bottom:6px;}
+.sub{font-family:'DM Mono',monospace;font-size:12px;color:var(--grey);margin-bottom:8px;}
+.status-line{font-family:'DM Mono',monospace;font-size:12px;margin-bottom:30px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;}
+.tool{display:block;text-decoration:none;background:var(--white);border:0.5px solid var(--grey-lt);border-top:3px solid var(--br);border-radius:var(--radius-lg);padding:22px 22px 20px;transition:box-shadow .15s,transform .1s;color:var(--ink);}
+.tool:hover{box-shadow:0 4px 20px rgba(92,128,152,0.16);transform:translateY(-2px);}
+.tool-name{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--br);margin-bottom:6px;}
+.tool-desc{font-size:13px;color:var(--grey);line-height:1.5;}
+.note{margin-top:34px;background:var(--br-xlt);border:1px solid var(--br-lt);border-radius:var(--radius);padding:14px 18px;font-size:13px;color:var(--br-dk);line-height:1.6;}
+.note b{font-weight:700;}
+footer{max-width:1000px;margin:0 auto;padding:0 32px 30px;font-family:'DM Mono',monospace;font-size:11px;color:var(--grey);}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="36" height="36" rx="6.5" fill="#EEF4F8"/>
+      <path d="M5.5 29 L18 8 L30.5 29" stroke="#5C8098" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="9" y1="20" x2="27" y2="20" stroke="#5C8098" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="18" cy="8" r="2.8" fill="#5C8098"/>
+    </svg>
+    <div>
+      <div class="wordmark-t">BROADREACH</div>
+      <div class="wordmark-s">Energy · AMMP Monitoring</div>
+    </div>
+  </div>
+</header>
+<div class="accent"></div>
+
+<main>
+  <div class="lead">AMMP Monitoring Tools</div>
+  <div class="sub">Live PV inverter data via the AMMP Data API</div>
+  <div class="status-line" id="statusLine"><span class="dot" style="background:#9CA3AF"></span>Checking service…</div>
+
+  <div class="grid">
+    <a class="tool" href="portfolio.html">
+      <div class="tool-name">Portfolio Overview</div>
+      <div class="tool-desc">Fleet-wide view of all sites with O&amp;M schedule, maintenance due dates, and per-site status.</div>
+    </a>
+    <a class="tool" href="grapher.html">
+      <div class="tool-name">Grapher</div>
+      <div class="tool-desc">Deep-dive charts for one asset: AC power vs inverter temperature, and dual-axis time series per inverter.</div>
+    </a>
+    <a class="tool" href="tester.html">
+      <div class="tool-name">API Tester</div>
+      <div class="tool-desc">Developer utility — authenticate, list assets, and inspect the raw AMMP asset metadata.</div>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>You'll need your own AMMP API key.</b> Open any tool above and paste your <span style="font-family:'DM Mono',monospace;">x-api-key</span> when prompted — it stays in your browser and is sent straight to AMMP. Nothing is stored on this server.
+  </div>
+</main>
+
+<footer>Broadreach Energy · AMMP Data API v1</footer>
+
+<script>
+fetch('/health',{signal:AbortSignal.timeout(4000)})
+  .then(r=>{
+    const el=document.getElementById('statusLine');
+    if(r.ok){el.innerHTML='<span class="dot" style="background:#477735"></span>Service online';}
+    else throw 0;
+  })
+  .catch(()=>{document.getElementById('statusLine').innerHTML='<span class="dot" style="background:#9B1B1D"></span>Service unreachable — try refreshing';});
+</script>
+</body>
+</html>
