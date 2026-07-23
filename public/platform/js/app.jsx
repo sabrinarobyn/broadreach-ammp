@@ -3,7 +3,7 @@
    ============================================================ */
 const { useState, useEffect } = React;
 
-const SETTINGS = { accent: '#5d809a', defaultLayout: 'grid' };
+const SETTINGS = { accent: '#5d809a' };
 
 function Logo() {
   return (
@@ -111,7 +111,6 @@ function AppShell() {
   const ammp = useAmmp();
   const [nav, setNav] = useState('portfolio');
   const [siteId, setSiteId] = useState(null);
-  const [layout, setLayout] = useState(SETTINGS.defaultLayout);
 
   const openSite = (id) => { setSiteId(id); window.scrollTo(0, 0); };
   const back = () => setSiteId(null);
@@ -137,7 +136,7 @@ function AppShell() {
   } else {
     title = 'Portfolio Overview';
     crumb = ammp.live ? `Live · ${ammp.sites.length} sites` : 'Not connected';
-    body = <PortfolioView onOpen={openSite} layout={layout} setLayout={setLayout} />;
+    body = <PortfolioView onOpen={openSite} />;
   }
 
   return (
@@ -156,7 +155,9 @@ function AppShell() {
 function App() {
   return (
     <AmmpProvider>
-      <AppShell />
+      <OmProvider>
+        <AppShell />
+      </OmProvider>
     </AmmpProvider>
   );
 }

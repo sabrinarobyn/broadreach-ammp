@@ -40,21 +40,6 @@ async function apiGet(token, path) {
   return json;
 }
 
-async function apiPost(token, path, body) {
-  const r = await fetch(`/proxy/${path}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}),
-  });
-  if (!r.ok) {
-    const txt = await r.text().catch(() => '');
-    throw new Error(`${path.split('?')[0]} failed (${r.status})${txt ? `: ${txt.slice(0, 200)}` : ''}`);
-  }
-  const json = await r.json();
-  if (typeof window !== 'undefined' && window.AMMP_DEBUG) console.debug('[AMMP]', path, Object.keys(json || {}));
-  return json;
-}
-
 async function authenticate(apiKey) {
   const r = await fetch('/auth/token', { method: 'POST', headers: { 'x-api-key': apiKey } });
   const d = await r.json().catch(() => ({}));
@@ -109,18 +94,19 @@ async function fetchInverterHistoric(token, deviceId, opts) { return apiGet(toke
 async function fetchDeviceHistoricBattery(token, deviceId, opts) { return apiGet(token, deviceHistoricUrl(deviceId, 'historic-data/battery-system', opts)); }
 async function fetchDeviceHistoricMeter(token, deviceId, opts) { return apiGet(token, deviceHistoricUrl(deviceId, 'historic-data/meter', opts)); }
 
-/* ---------------- tickets ---------------- */
-
-async function postTicketsList(token, filters) { return apiPost(token, 'v1/tickets/list', filters || {}); }
-
-/* ---------------- device type matching (only pv_inverter is a confirmed exact string) ---------------- */
+/* ---------------- device type matching ---------------- */
+/* device_type varies by account/hardware — confirmed real-world values include
+   'pv_inverter' and 'battery_inverter' (hybrid inverters), so match any string
+   containing "inverter" rather than a fixed set. Run debugDevices(assetId) from the
+   console (via window.__ammp) to confirm the exact device_type values a given
+   portfolio actually returns. */
 
 function matchesDeviceType(device, deviceType) {
   if (deviceType == null) return true;
   const t = (device && device.device_type) || '';
   return deviceType instanceof RegExp ? deviceType.test(t) : t === deviceType;
 }
-const DEVICE_TYPE = { INVERTER: 'pv_inverter', BATTERY: /batt/i, METER: /meter/i };
+const DEVICE_TYPE = { INVERTER: /inverter/i, BATTERY: /batt/i, METER: /meter/i };
 
 /* ---------------- date-range chunking (device endpoints: max 7 days at 5m/15m) ---------------- */
 
@@ -186,10 +172,19 @@ function extractDeviceSeries(resp) {
 
 function extractAssetSeries(resp) {
   if (!resp || typeof resp !== 'object') return [];
-  if (Array.isArray(resp.data)) return [{ key: 'value', label: 'Value', points: resp.data }];
+  if (Array.isArray(resp.data)) return [{ key: 'value', label: 'Value', points: resp.data, unit: resp.unit || null }];
   return Object.keys(resp).filter((k) => isAssetSeriesValue(resp[k])).map((k) => ({
-    key: k, label: humanizeKey(k), points: resp[k].data,
+    key: k, label: humanizeKey(k), points: resp[k].data, unit: resp[k].unit || null,
   }));
+}
+
+/* AMMP declares each series' own unit (confirmed: "W" for power fields) — scale the
+   two base-unit forms down to their kilo- equivalent; anything else (%, kg, currency,
+   already-kilo) passes through unchanged. Safe to apply broadly since it only fires
+   on those two exact unit strings. */
+function scaleByDeclaredUnit(value, unit) {
+  if (value == null || !isFinite(value)) return value;
+  return (unit === 'W' || unit === 'Wh') ? value / 1000 : value;
 }
 
 const WORD_ALIASES = {
@@ -224,7 +219,14 @@ function findField(obj, pattern, { maxDepth = 2 } = {}) {
   return null;
 }
 
+/* total_pv_power is the confirmed nameplate-capacity field on this AMMP account's
+   assets (both the /v1/assets list and /v1/assets/{id} detail), reported in Watts —
+   not kWp as originally assumed. Prefer it, converting to kW; fall back to a generic
+   capacity-like key for accounts whose assets don't carry total_pv_power. */
 function extractCapacityKw(detail) {
+  if (detail && typeof detail.total_pv_power === 'number') {
+    return { value: detail.total_pv_power / 1000, key: 'total_pv_power' };
+  }
   const f = findField(detail, /capacity|kwp|kw_dc|installed/i);
   return f ? { value: Number(f.value), key: f.key } : null;
 }
@@ -240,6 +242,13 @@ function extractLocation(detail) {
   }
   return parts.length ? parts.join(', ') : null;
 }
+function extractProvince(detail) {
+  for (const name of ['province', 'region', 'state']) {
+    const f = findField(detail, new RegExp(`^${name}$`, 'i'), { maxDepth: 1 });
+    if (f) return f.value;
+  }
+  return null;
+}
 function extractCoords(detail) {
   const lat = findField(detail, /^lat(itude)?$/i);
   const lng = findField(detail, /^(lon|lng|longitude)$/i);
@@ -247,40 +256,137 @@ function extractCoords(detail) {
   return (lat && lng && isFinite(latN) && isFinite(lngN)) ? { lat: latN, lng: lngN } : null;
 }
 
-function derivePowerKw(mostRecentResp) {
-  if (!mostRecentResp) return null;
-  const f = findField(mostRecentResp, /power/i);
-  if (f) return Number(f.value);
-  const series = extractAssetSeries(mostRecentResp);
-  if (series.length && series[0].points.length) return Number(series[0].points[series[0].points.length - 1].value);
+/* Exact-key-first scalar extraction — tries the confirmed field name (e.g. 'pv_power',
+   'poa_irradiance') as a bare number, a { value } wrapper, or an asset-series { data:
+   [{date,value}] } tail, before falling back to the generic pattern-matched findField.
+   Important: if the exact key exists but is null/unusable (e.g. a momentary data gap),
+   return null immediately rather than falling through to the broad fallback pattern —
+   most-recent responses on this API merge live telemetry with static asset metadata
+   (e.g. total_pv_power, the nameplate capacity) into one flat object, and a loose
+   /power/i fallback would otherwise pick up total_pv_power and misreport it as the
+   current live reading. */
+function extractScalar(obj, exactKey, fallbackPattern) {
+  if (obj && typeof obj === 'object' && exactKey in obj) {
+    const v = obj[exactKey];
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && v !== '' && isFinite(Number(v))) return Number(v);
+    if (v && typeof v === 'object') {
+      if (typeof v.value === 'number') return v.value;
+      if (Array.isArray(v.data) && v.data.length) {
+        const last = v.data[v.data.length - 1];
+        if (last && last.value != null) return Number(last.value);
+      }
+    }
+    return null;
+  }
+  if (fallbackPattern) {
+    const f = findField(obj, fallbackPattern);
+    if (f) return Number(f.value);
+  }
   return null;
 }
+
+/* most-recent's pv_power is a flat scalar in Watts (same convention confirmed via
+   historic-power's declared "unit": "W") — convert to kW. */
+function derivePowerKw(mostRecentResp) {
+  if (!mostRecentResp) return null;
+  const exact = extractScalar(mostRecentResp, 'pv_power', /power/i);
+  if (exact != null) return exact / 1000;
+  const series = extractAssetSeries(mostRecentResp);
+  if (series.length && series[0].points.length) return Number(series[0].points[series[0].points.length - 1].value) / 1000;
+  return null;
+}
+/* status-info-latest's 'alerts' field is confirmed to be a rolling event history per
+   device (both "OK" recovery and "Error" events, months deep — one real account had
+   658 entries) rather than a list of currently-open problems. Reduce to each device's
+   most-recent entry (by timestamp, not array order) and treat only a non-"OK" latest
+   state as an active alert — otherwise virtually every asset has *some* alert in its
+   history and every site would falsely show as alerting. */
+function deriveActiveAlerts(statusInfoResp) {
+  if (!statusInfoResp) return [];
+  const alerts = Array.isArray(statusInfoResp.alerts) ? statusInfoResp.alerts : null;
+  if (!alerts) return [];
+  const latestByDevice = new Map();
+  for (const a of alerts) {
+    const key = a.device_id || a.device_name || '_';
+    const t = new Date(a.timestamp || a.time || a.date).getTime();
+    const prev = latestByDevice.get(key);
+    if (!prev || (isFinite(t) && t > prev._t)) latestByDevice.set(key, { ...a, _t: t });
+  }
+  return [...latestByDevice.values()].filter((a) => a.status_level && a.status_level !== 'OK');
+}
+
 function deriveHasAlerts(statusInfoResp) {
   if (!statusInfoResp) return false;
-  return Object.keys(statusInfoResp).some((k) => Array.isArray(statusInfoResp[k]) && statusInfoResp[k].length > 0);
+  if (Array.isArray(statusInfoResp.alerts)) return deriveActiveAlerts(statusInfoResp).length > 0;
+  // fallback for accounts without a confirmed 'alerts' key
+  return Object.keys(statusInfoResp).some((k) => /alert/i.test(k) && Array.isArray(statusInfoResp[k]) && statusInfoResp[k].length > 0);
 }
+
+/* AMMP's time-series endpoints always include an explicit UTC offset ("+00:00"), but
+   point-in-time metadata endpoints (e.g. last-data-received) sometimes return a bare
+   "YYYY-MM-DDTHH:MM:SS" with none. JS's Date parser treats that as LOCAL time, not
+   UTC — on a machine in a non-UTC zone this silently skews staleness/display by the
+   local UTC offset (confirmed: ~2h skew on a SAST machine, enough to falsely trip the
+   staleness threshold). Normalize by assuming UTC when no offset is present. */
+function parseAmmpDate(input) {
+  if (input == null) return new Date(NaN);
+  const s = String(input);
+  const naive = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s);
+  return new Date(naive ? s + 'Z' : s);
+}
+
 function deriveStale(lastDataReceivedResp, staleMs = 2 * 3600 * 1000) {
   if (!lastDataReceivedResp) return true;
   const f = findField(lastDataReceivedResp, /time|date|received|timestamp/i);
   if (!f) return true;
-  const t = new Date(f.value).getTime();
+  const t = parseAmmpDate(f.value).getTime();
   return !isFinite(t) || (Date.now() - t) > staleMs;
 }
+
+/* SAST (UTC+2) daylight window — a site with zero PV output outside 06:00–19:00 SAST
+   is expected to be idle, not a fault, so status falls back to 'unknown' (grey) rather
+   than 'none' (red) outside that window. */
+function isSastDaylight(date) {
+  const h = new Date((date || new Date()).getTime() + 2 * 3600 * 1000).getUTCHours();
+  return h >= 6 && h < 19;
+}
+const SAST_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function formatSAST(dateInput) {
+  if (!dateInput) return null;
+  const d = parseAmmpDate(dateInput);
+  if (isNaN(d.getTime())) return null;
+  const s = new Date(d.getTime() + 2 * 3600 * 1000);
+  const pad2 = (n) => (n < 10 ? '0' : '') + n;
+  return `${pad2(s.getUTCDate())} ${SAST_MONTHS[s.getUTCMonth()]} ${s.getUTCFullYear()} ${pad2(s.getUTCHours())}:${pad2(s.getUTCMinutes())}`;
+}
+
 /* The 4 real, derivable states — replaces an earlier invented 7-state enum
    (production/issues/weather/throttling/export/shedding) that had no single
-   confirmed AMMP source. */
-function deriveStatus({ powerKw, hasAlerts, stale }) {
+   confirmed AMMP source. producing/none is now decided by the PV-output ratio
+   during SAST daylight hours; outside daylight (or with no ratio available) it
+   falls back to powerKw, then to 'unknown' rather than a fabricated 'none'. */
+function deriveStatus({ powerKw, pvRatioPct, hasAlerts, stale, daylight }) {
   if (stale) return 'unknown';
   if (hasAlerts) return 'alert';
+  if (!daylight) return 'unknown';
+  if (pvRatioPct != null) return pvRatioPct > 0 ? 'producing' : 'none';
   if (powerKw != null) return powerKw > 0 ? 'producing' : 'none';
   return 'unknown';
 }
 
+/* total_pv_power (Watts) is the confirmed nameplate-capacity field on this account's
+   assets — pv_kwp/kwp are kept as fallbacks for accounts that return those instead. */
 function toSite(asset) {
+  const pvKwp = typeof asset.total_pv_power === 'number' ? asset.total_pv_power / 1000
+    : typeof asset.pv_kwp === 'number' ? asset.pv_kwp
+    : typeof asset.kwp === 'number' ? asset.kwp
+    : null;
   return {
     id: asset.asset_id || asset.id,
     name: asset.asset_name || asset.name || asset.long_name || String(asset.asset_id || asset.id),
     raw: asset,
+    pvKwp,
     status: 'unknown',
   };
 }
@@ -315,6 +421,7 @@ function AmmpProvider({ children }) {
 
   const enrichSites = React.useCallback(async (tok, baseSites) => {
     setPortfolioLoading(true);
+    const daylight = isSastDaylight();
     const enriched = await mapWithConcurrency(baseSites, 8, async (site) => {
       const [detail, mostRecent, lastData, statusInfo] = await Promise.all([
         fetchAssetDetail(tok, site.id).catch(() => null),
@@ -322,21 +429,26 @@ function AmmpProvider({ children }) {
         fetchLastDataReceived(tok, site.id).catch(() => null),
         fetchStatusInfoLatest(tok, site.id).catch(() => null),
       ]);
-      const capacity = detail ? extractCapacityKw(detail) : null;
+      const detailCapacity = detail ? extractCapacityKw(detail) : null;
+      const capacityKw = site.pvKwp != null ? site.pvKwp : (detailCapacity ? detailCapacity.value : null);
       const powerKw = derivePowerKw(mostRecent);
+      const pvRatioPct = (powerKw != null && capacityKw) ? Math.max(0, Math.min(100, (powerKw / capacityKw) * 100)) : null;
       const hasAlerts = deriveHasAlerts(statusInfo);
       const lastDataField = findField(lastData, /time|date|received|timestamp/i);
       const stale = deriveStale(lastData);
       return {
         ...site,
         detail,
-        capacityKw: capacity ? capacity.value : null,
+        capacityKw,
+        province: detail ? extractProvince(detail) : null,
         location: detail ? extractLocation(detail) : null,
         coords: detail ? extractCoords(detail) : null,
         powerKw,
+        pvRatioPct,
         hasAlerts,
+        stale,
         lastDataAt: lastDataField ? lastDataField.value : null,
-        status: deriveStatus({ powerKw, hasAlerts, stale }),
+        status: deriveStatus({ powerKw, pvRatioPct, hasAlerts, stale, daylight }),
       };
     });
     setSites(enriched);
@@ -379,11 +491,38 @@ function AmmpProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* Live-status poll — every 60s, re-check pv_power (lookback 30 min) for every site
+     and recompute status/pvRatioPct. Lighter than enrichSites: no detail/alert refetch. */
+  const sitesRef = React.useRef(sites);
+  React.useEffect(() => { sitesRef.current = sites; }, [sites]);
+  React.useEffect(() => {
+    if (!live || !token) return;
+    const id = setInterval(async () => {
+      const current = sitesRef.current;
+      if (!current.length) return;
+      const daylight = isSastDaylight();
+      const updated = await mapWithConcurrency(current, 8, async (site) => {
+        const mostRecent = await fetchMostRecent(token, site.id, 1800).catch(() => null);
+        const powerKw = derivePowerKw(mostRecent);
+        const pvRatioPct = (powerKw != null && site.capacityKw) ? Math.max(0, Math.min(100, (powerKw / site.capacityKw) * 100)) : null;
+        return { ...site, powerKw, pvRatioPct, status: deriveStatus({ powerKw, pvRatioPct, hasAlerts: site.hasAlerts, stale: site.stale, daylight }) };
+      });
+      setSites(updated);
+    }, 60000);
+    return () => clearInterval(id);
+  }, [live, token]);
+
   const devicesFor = React.useCallback((assetId, deviceType) => {
     if (!devicesCacheRef.current.has(assetId)) {
       devicesCacheRef.current.set(assetId, fetchAssetDevices(token, assetId));
     }
     return devicesCacheRef.current.get(assetId).then((list) => (deviceType ? list.filter((d) => matchesDeviceType(d, deviceType)) : list));
+  }, [token]);
+
+  const debugDevices = React.useCallback(async (assetId) => {
+    const list = await fetchAssetDevices(token, assetId);
+    console.table(list.map((d) => ({ name: d.device_name, device_type: d.device_type, device_id: d.device_id })));
+    return list;
   }, [token]);
 
   const inverterSeriesFor = React.useCallback(async (deviceId, dateFromIso, dateToIso, days) => {
@@ -393,8 +532,12 @@ function AmmpProvider({ children }) {
 
   const value = {
     live, connecting, portfolioLoading, error, token, assets, sites,
-    connect, disconnect, devicesFor, inverterSeriesFor,
+    connect, disconnect, devicesFor, debugDevices, inverterSeriesFor,
   };
+
+  /* Console convenience: window.__ammp.debugDevices('assetId') to confirm real
+     device_type strings for a portfolio (Fix 10). */
+  React.useEffect(() => { if (typeof window !== 'undefined') window.__ammp = value; });
 
   return <AmmpContext.Provider value={value}>{children}</AmmpContext.Provider>;
 }
@@ -448,9 +591,10 @@ Object.assign(window, {
   fetchHistoricBatteryData, fetchHistoricEnvironmentData, fetchHistoricKpiData,
   fetchPvPerformanceKpis, fetchPvYieldLosses, fetchFinancialImpact, fetchEnvironmentalImpact,
   fetchInverterHistoric, fetchDeviceHistoricBattery, fetchDeviceHistoricMeter,
-  postTicketsList, matchesDeviceType, DEVICE_TYPE,
+  matchesDeviceType, DEVICE_TYPE,
   chunkDateRange, mergeSeriesResponses, fetchChunked,
-  extractDeviceSeries, extractAssetSeries, humanizeKey, findField,
-  extractCapacityKw, extractLocation, extractCoords,
-  derivePowerKw, deriveHasAlerts, deriveStale, deriveStatus, toSite, toInverterSeries,
+  extractDeviceSeries, extractAssetSeries, humanizeKey, findField, extractScalar, scaleByDeclaredUnit,
+  extractCapacityKw, extractLocation, extractProvince, extractCoords,
+  derivePowerKw, deriveHasAlerts, deriveActiveAlerts, deriveStale, deriveStatus, toSite, toInverterSeries,
+  isSastDaylight, formatSAST, parseAmmpDate,
 });

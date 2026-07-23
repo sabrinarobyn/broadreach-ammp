@@ -65,60 +65,6 @@ function PanelArray({ site }) {
   );
 }
 
-/* ---------------- Battery ---------------- */
-function useBatteryData(site) {
-  const ammp = useAmmp();
-  const [state, setState] = _spUseState({ status: 'loading' });
-  React.useEffect(() => {
-    let cancelled = false;
-    setState({ status: 'loading' });
-    (async () => {
-      try {
-        const devices = await ammp.devicesFor(site.id, DEVICE_TYPE.BATTERY);
-        if (!devices.length) { if (!cancelled) setState({ status: 'empty' }); return; }
-        const to = new Date(), from = new Date(to.getTime() - 6 * 3600 * 1000);
-        const resp = await fetchDeviceHistoricBattery(ammp.token, devices[0].device_id, { dateFrom: from.toISOString(), dateTo: to.toISOString(), interval: '15m' });
-        const series = extractDeviceSeries(resp);
-        if (!cancelled) setState(series.length ? { status: 'ready', series } : { status: 'empty' });
-      } catch (e) {
-        if (!cancelled) setState({ status: 'error', error: e.message });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [site.id, ammp.token]);
-  return state;
-}
-
-function BatteryPanel({ site }) {
-  const { status, series, error } = useBatteryData(site);
-  if (status === 'loading') return <Loading label="Loading battery data…" />;
-  if (status === 'error') return <div className="card" style={{ padding: 16 }}><ErrorNote message={error} /></div>;
-  if (status !== 'ready') return null; // no battery device on this asset
-
-  const socSeries = series.find((s) => /soc/i.test(s.key)) || series[0];
-  const last = socSeries.points[socSeries.points.length - 1];
-  const socValue = last && last.value != null ? Number(last.value) : null;
-
-  return (
-    <div className="card" style={{ padding: 16 }}>
-      <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 12px' }}>Battery Storage</h3>
-      {socValue != null && <Donut value={Math.min(100, Math.max(0, socValue))} label={socValue.toFixed(0) + '%'} sub={socSeries.label} size={104} />}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
-        {series.map((s) => {
-          const p = s.points[s.points.length - 1];
-          if (!p || p.value == null) return null;
-          return (
-            <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem' }}>
-              <span style={{ color: 'var(--ink-mid)' }}>{s.label}</span>
-              <span className="mono" style={{ fontWeight: 700 }}>{Number(p.value).toFixed(2)}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /* ---------------- Alerts ---------------- */
 function useStatusInfo(site) {
   const ammp = useAmmp();
@@ -128,8 +74,7 @@ function useStatusInfo(site) {
     setState({ status: 'loading' });
     fetchStatusInfoLatest(ammp.token, site.id).then((resp) => {
       if (cancelled) return;
-      const arrayKey = Object.keys(resp || {}).find((k) => Array.isArray(resp[k]));
-      setState({ status: 'ready', items: arrayKey ? resp[arrayKey] : [] });
+      setState({ status: 'ready', items: deriveActiveAlerts(resp) });
     }).catch((e) => { if (!cancelled) setState({ status: 'error', error: e.message }); });
     return () => { cancelled = true; };
   }, [site.id, ammp.token]);
@@ -147,8 +92,8 @@ function AlertsPanel({ site }) {
       {status === 'ready' && items && items.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {items.map((a, i) => {
-            const title = a.title || a.message || a.description || a.name || 'Alert';
-            const time = a.time || a.date || a.timestamp || null;
+            const title = a.content || a.title || a.message || a.description || a.name || 'Alert';
+            const time = a.timestamp || a.time || a.date || null;
             return (
               <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 8, background: 'var(--amb-lt)', borderLeft: '3px solid var(--amb)' }}>
                 <div style={{ flex: 1, fontWeight: 700, fontSize: '0.74rem', color: 'var(--ink)' }}>{title}</div>
@@ -246,4 +191,4 @@ function RevenuePanel({ site }) {
   );
 }
 
-Object.assign(window, { PanelArray, BatteryPanel, AlertsPanel, EnviroPanel, RevenuePanel, Loading });
+Object.assign(window, { PanelArray, AlertsPanel, EnviroPanel, RevenuePanel, Loading });

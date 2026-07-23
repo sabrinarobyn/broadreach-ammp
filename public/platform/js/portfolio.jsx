@@ -33,33 +33,27 @@ function ConnectGate({ note }) {
   );
 }
 
-function PortfolioView({ onOpen, layout, setLayout }) {
+function PortfolioView({ onOpen }) {
   const ammp = useAmmp();
   const [q, setQ] = _useState('');
   const [status, setStatus] = _useState('all');
   const [sort, setSort] = _useState({ k: 'name', dir: 1 });
-  const [group, setGroup] = _useState('status');
 
   const sites = ammp.sites;
-  const hasCoords = React.useMemo(() => sites.some((s) => s.coords), [sites]);
-  React.useEffect(() => { if (layout === 'map' && !hasCoords) setLayout('grid'); }, [hasCoords, layout, setLayout]);
 
   const filtered = React.useMemo(() => {
-    let r = sites.filter((s) =>
-      (q === '' || s.name.toLowerCase().includes(q.toLowerCase()) || s.id.toLowerCase().includes(q.toLowerCase())) &&
+    const r = sites.filter((s) =>
+      (q === '' || s.name.toLowerCase().includes(q.toLowerCase())) &&
       (status === 'all' || s.status === status));
-    if (layout === 'table') {
-      r = r.slice().sort((a, b) => {
-        const av = a[sort.k], bv = b[sort.k];
-        if (av == null && bv == null) return 0;
-        if (av == null) return 1;
-        if (bv == null) return -1;
-        if (typeof av === 'string') return av.localeCompare(bv) * sort.dir;
-        return (av - bv) * sort.dir;
-      });
-    }
-    return r;
-  }, [sites, q, status, layout, sort]);
+    return r.slice().sort((a, b) => {
+      const av = a[sort.k], bv = b[sort.k];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string') return av.localeCompare(bv) * sort.dir;
+      return (av - bv) * sort.dir;
+    });
+  }, [sites, q, status, sort]);
 
   if (!ammp.live) return <ConnectGate note="Sign in with your AMMP x-api-key to load the portfolio." />;
 
@@ -83,35 +77,20 @@ function PortfolioView({ onOpen, layout, setLayout }) {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--gap)' }}>
         <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
           <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-light)', fontSize: 13 }}>⌕</span>
-          <input className="fld" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search site or ID…" style={{ width: '100%', paddingLeft: 28 }} />
+          <input className="fld" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search site…" style={{ width: '100%', paddingLeft: 28 }} />
         </div>
         <select className="fld" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="all">All statuses</option>
           {Object.values(STATUS_STATES).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
         {(q || status !== 'all') && <button className="btn btn-ghost btn-sm" onClick={() => { setQ(''); setStatus('all'); }}>Clear</button>}
-        <span className="mono" style={{ fontSize: '0.66rem', color: 'var(--ink-light)' }}>{filtered.length} of {sites.length} sites</span>
-        {layout === 'grid' && (
-          <div style={{ display: 'flex', gap: 4, background: '#fff', border: '1px solid var(--grey-lt)', borderRadius: 8, padding: 3 }}>
-            <span className="eyebrow" style={{ alignSelf: 'center', padding: '0 4px 0 6px' }}>Group</span>
-            {[['none', 'None'], ['status', 'Status']].map(([v, l]) => (
-              <button key={v} onClick={() => setGroup(v)} className="seg-btn" data-on={group === v}>{l}</button>
-            ))}
-          </div>
-        )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, background: '#fff', border: '1px solid var(--grey-lt)', borderRadius: 8, padding: 3 }}>
-          {[['grid', '▦ Grid'], ['table', '☰ Table'], ...(hasCoords ? [['map', '◈ Map']] : [])].map(([v, l]) => (
-            <button key={v} onClick={() => setLayout(v)} className="seg-btn" data-on={layout === v}>{l}</button>
-          ))}
-        </div>
+        <span className="mono" style={{ fontSize: '0.66rem', color: 'var(--ink-light)', marginLeft: 'auto' }}>{filtered.length} of {sites.length} sites</span>
       </div>
 
       <div style={{ marginBottom: 28 }}>
         {filtered.length === 0
           ? <EmptyState title="No sites match your filters." />
-          : layout === 'grid' ? <SiteGrid sites={filtered} onOpen={onOpen} group={group} />
-          : layout === 'table' ? <SiteTable sites={filtered} onOpen={onOpen} sort={sort} setSort={setSort} />
-          : <SiteMap sites={filtered} onOpen={onOpen} />}
+          : <SiteTable sites={filtered} onOpen={onOpen} sort={sort} setSort={setSort} />}
       </div>
     </div>
   );

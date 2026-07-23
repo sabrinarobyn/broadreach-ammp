@@ -28,112 +28,6 @@ function smoothPath(pts) {
   return d;
 }
 
-/* ---- Area / line chart with hover ---- */
-function FlowChart({ data, keys, height = 320 }) {
-  const [ref, w] = useWidth();
-  const [hover, setHover] = _useState(null);
-  const padL = 42, padR = 16, padT = 16, padB = 30;
-  const W = Math.max(320, w), H = height;
-  const iw = W - padL - padR, ih = H - padT - padB;
-  const pts = data.pts;
-  const maxV = Math.max(...pts.flatMap(p => keys.map(k => p[k.k]))) * 1.12 || 1;
-  const x = (i) => padL + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
-  const y = (v) => padT + ih - (v / maxV) * ih;
-
-  const yticks = 4;
-  const gridY = Array.from({ length: yticks + 1 }, (_, i) => (maxV / yticks) * i);
-
-  const onMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / rect.width * W;
-    let best = 0, bd = 1e9;
-    pts.forEach((p, i) => { const d = Math.abs(x(i) - px); if (d < bd) { bd = d; best = i; } });
-    setHover(best);
-  };
-
-  return (
-    <div ref={ref} style={{ width: '100%', position: 'relative' }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', overflow: 'visible' }}
-           onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-        <defs>
-          {keys.map((k, ki) => (
-            <linearGradient key={ki} id={`grad-${ki}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={k.c} stopOpacity="0.26" />
-              <stop offset="100%" stopColor={k.c} stopOpacity="0.01" />
-            </linearGradient>
-          ))}
-        </defs>
-        {gridY.map((g, i) => (
-          <g key={i}>
-            <line x1={padL} x2={W - padR} y1={y(g)} y2={y(g)} stroke="#EAEEF1" strokeWidth="1" strokeDasharray={i === 0 ? '0' : '3 4'} />
-            <text x={padL - 8} y={y(g) + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-mono)" fill="#9AA4AE">{Math.round(g)}</text>
-          </g>
-        ))}
-        {keys.map((k, ki) => {
-          const linePts = pts.map((p, i) => ({ x: x(i), y: y(p[k.k]) }));
-          const dLine = smoothPath(linePts);
-          const dArea = dLine + ` L ${x(pts.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
-          return (
-            <g key={ki}>
-              {k.fill !== false && <path d={dArea} fill={`url(#grad-${ki})`} />}
-              <path d={dLine} fill="none" stroke={k.c} strokeWidth={k.w || 2.4} strokeLinejoin="round" strokeLinecap="round" />
-            </g>
-          );
-        })}
-        {pts.map((p, i) => i % Math.ceil(pts.length / 12) === 0 || i === pts.length - 1 ? (
-          <text key={i} x={x(i)} y={H - 9} textAnchor="middle" fontSize="10" fontFamily="var(--font-mono)" fill="#9AA4AE">{p.label}</text>
-        ) : null)}
-        {hover !== null && (
-          <g>
-            <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + ih} stroke="#B9C3CB" strokeWidth="1" strokeDasharray="3 3" />
-            {keys.map((k, ki) => (
-              <circle key={ki} cx={x(hover)} cy={y(pts[hover][k.k])} r="4" fill="#fff" stroke={k.c} strokeWidth="2.5" />
-            ))}
-          </g>
-        )}
-      </svg>
-      {hover !== null && (
-        <div style={{
-          position: 'absolute', top: 8, left: `clamp(8px, ${(x(hover) / W) * 100}%, calc(100% - 168px))`,
-          background: 'var(--br-dker)', color: '#fff', borderRadius: 8, padding: '8px 10px',
-          fontSize: 11, pointerEvents: 'none', boxShadow: 'var(--shadow-md)', minWidth: 150, zIndex: 3,
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', opacity: 0.7, marginBottom: 4, fontSize: 10 }}>{pts[hover].label}</div>
-          {keys.map((k, ki) => (
-            <div key={ki} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, lineHeight: 1.6 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: k.c }}></span>{k.label}
-              </span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{pts[hover][k.k].toLocaleString()} {data.unit}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ---- Donut gauge (SOC etc) ---- */
-function Donut({ value, size = 116, stroke = 12, color = 'var(--amb)', track = '#EEF1F4', label, sub }) {
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const off = c * (1 - value / 100);
-  return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
-                strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round"
-                style={{ transition: 'stroke-dashoffset 0.9s cubic-bezier(.22,1,.36,1)' }} />
-      </svg>
-      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="display" style={{ fontSize: size * 0.27, color: 'var(--ink)' }}>{label}</div>
-        {sub && <div className="mono" style={{ fontSize: 9, color: 'var(--ink-light)', letterSpacing: 1 }}>{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
 /* ---- Mini sparkline ---- */
 function Spark({ values, color = 'var(--br)', w = 96, h = 30, fill = true, full = false }) {
   const W = full ? 300 : w;
@@ -324,4 +218,4 @@ function ScatterChart({ series, height = 360 }) {
   );
 }
 
-Object.assign(window, { FlowChart, Donut, Spark, MiniBars, useWidth, InverterChart, INV_METRICS, INV_METRIC_ORDER, ScatterChart });
+Object.assign(window, { Spark, MiniBars, useWidth, InverterChart, INV_METRICS, INV_METRIC_ORDER, ScatterChart });

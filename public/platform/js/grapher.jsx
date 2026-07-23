@@ -8,6 +8,17 @@ const { useState: _gUseState, useEffect: _gUseEffect } = React;
 const GRAPH_COLORS = ['#C86A1A', '#5d809a', '#4e7d3a', '#6D4AC2', '#1B7E8C', '#d34a5e', '#B58A00', '#315EDC', '#0E7C5A', '#A23E8C'];
 const GRAPH_DAY_MS = 86400000;
 function grapherIsoDate(d) { return d.toISOString().slice(0, 10); }
+function grapherAssetGroups(assets) {
+  const sorted = [...assets].sort((a, b) => (a.asset_name || '').localeCompare(b.asset_name || ''));
+  const groups = [];
+  let cur = null;
+  for (const a of sorted) {
+    const letter = ((a.asset_name || '')[0] || '#').toUpperCase();
+    if (!cur || cur.letter !== letter) { cur = { letter, items: [] }; groups.push(cur); }
+    cur.items.push(a);
+  }
+  return groups;
+}
 function grapherClampRange(from, to) {
   let a = new Date(from + 'T00:00:00'), b = new Date(to + 'T00:00:00');
   if (b < a) b = new Date(a);
@@ -80,7 +91,11 @@ function GrapherView() {
           <span className="eyebrow" style={{ flexShrink: 0 }}>1 · Select asset</span>
           <select className="fld" value={assetId} onChange={e => setAssetId(e.target.value)} style={{ flex: '1 1 260px', maxWidth: 380 }}>
             <option value="">— choose an asset —</option>
-            {ammp.assets.map(a => <option key={a.asset_id} value={a.asset_id}>{a.asset_name}{a.long_name ? ` — ${a.long_name}` : ''}{a.country_code ? ` (${a.country_code})` : ''}</option>)}
+            {grapherAssetGroups(ammp.assets).map(g => (
+              <optgroup key={g.letter} label={g.letter}>
+                {g.items.map(a => <option key={a.asset_id} value={a.asset_id}>{a.asset_name}{a.long_name ? ` — ${a.long_name}` : ''}{a.country_code ? ` (${a.country_code})` : ''}</option>)}
+              </optgroup>
+            ))}
           </select>
           <span className="mono" style={{ fontSize: '0.62rem', color: 'var(--ink-light)' }}>{ammp.assets.length} assets from AMMP</span>
         </div>
