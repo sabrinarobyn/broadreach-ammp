@@ -3,7 +3,7 @@
    ============================================================ */
 const { useState, useEffect } = React;
 
-const SETTINGS = { accent: '#5d809a', density: 'comfortable', defaultLayout: 'grid', showLegend: true };
+const SETTINGS = { accent: '#5d809a', defaultLayout: 'grid' };
 
 function Logo() {
   return (
@@ -44,20 +44,20 @@ function signOutOfAmmp(ammp) {
   location.href = '../index.html';
 }
 
-function Sidebar({ nav, setNav, live, urgent }) {
+function Sidebar({ nav, setNav }) {
   const ammp = useAmmp();
+  const live = ammp.live;
   return (
     <aside style={{ width: 218, background: 'var(--br-dker)', color: '#fff', display: 'flex', flexDirection: 'column', flexShrink: 0, padding: '18px 14px' }}>
       <div style={{ padding: '0 4px 18px' }}><Logo /></div>
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
-        {NAV.map(n => (
+        {NAV.map((n) => (
           <button key={n.k} onClick={() => setNav(n.k)} style={{
             display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderRadius: 8, border: 'none',
             background: nav === n.k ? 'rgba(255,255,255,0.12)' : 'transparent', color: nav === n.k ? '#fff' : 'rgba(255,255,255,0.62)',
             fontSize: '0.8rem', fontWeight: nav === n.k ? 700 : 500, textAlign: 'left', position: 'relative', transition: 'background .12s',
           }}>
             <span style={{ width: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', opacity: 0.92 }}><LucideIcon name={n.icon} size={17} color={nav === n.k ? '#fff' : 'rgba(255,255,255,0.62)'} /></span>{n.label}
-            {n.k === 'schedule' && urgent > 0 && <span style={{ marginLeft: 'auto', background: 'var(--rd)', color: '#fff', fontSize: '0.56rem', fontWeight: 700, borderRadius: 10, padding: '1px 7px', fontFamily: 'var(--font-mono)' }}>{urgent}</span>}
           </button>
         ))}
       </nav>
@@ -75,7 +75,8 @@ function Sidebar({ nav, setNav, live, urgent }) {
   );
 }
 
-function TopBar({ title, crumb, live, onConnect }) {
+function TopBar({ title, crumb, onConnect }) {
+  const ammp = useAmmp();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(id); }, []);
   return (
@@ -88,8 +89,8 @@ function TopBar({ title, crumb, live, onConnect }) {
         <div>{now.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</div>
         <div>{now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
       </div>
-      {live ? (
-        <span className="pill" style={{ background: 'var(--grn-lt)', borderColor: 'transparent', color: 'var(--grn-ink)' }}><span className="live-dot"></span> LIVE · {BR_DATA.totals.count} sites</span>
+      {ammp.live ? (
+        <span className="pill" style={{ background: 'var(--grn-lt)', borderColor: 'transparent', color: 'var(--grn-ink)' }}><span className="live-dot"></span> LIVE · {ammp.sites.length} sites</span>
       ) : (
         <button className="btn btn-sm" onClick={onConnect}>Connect AMMP</button>
       )}
@@ -112,26 +113,21 @@ function AppShell() {
   const [siteId, setSiteId] = useState(null);
   const [layout, setLayout] = useState(SETTINGS.defaultLayout);
 
-  const live = ammp.live;
   const openSite = (id) => { setSiteId(id); window.scrollTo(0, 0); };
   const back = () => setSiteId(null);
   const goConnect = () => { setSiteId(null); setNav('portfolio'); };
 
-  const styleVars = {
-    '--br': SETTINGS.accent,
-    '--gap': '12px',
-    '--card-pad': '14px',
-  };
+  const styleVars = { '--br': SETTINGS.accent, '--gap': '12px', '--card-pad': '14px' };
 
-  const site = siteId ? BR_DATA.sites.find(s => s.id === siteId) : null;
+  const site = siteId ? ammp.sites.find((s) => s.id === siteId) : null;
   let title = 'Portfolio Overview', crumb = null, body;
   if (site) {
-    title = site.name; crumb = 'Portfolio › ' + site.province;
-    body = <SiteView siteId={siteId} live={live} onBack={back} />;
+    title = site.name; crumb = 'Portfolio' + (site.location ? ' › ' + site.location : '');
+    body = <SiteView siteId={siteId} onBack={back} />;
   } else if (nav === 'schedule') {
-    title = 'O&M Schedule'; body = <div style={{ maxWidth: 1100 }}><Schedule onOpen={openSite} /></div>;
+    title = 'O&M Schedule'; body = <div style={{ maxWidth: 1100 }}><Schedule /></div>;
   } else if (nav === 'deepdive') {
-    title = 'Site Deep Dive'; crumb = 'Single-site analysis'; body = <DeepDiveView live={live} />;
+    title = 'Site Deep Dive'; crumb = 'Single-site analysis'; body = <DeepDiveView />;
   } else if (nav === 'grapher') {
     title = 'Grapher'; crumb = 'Power vs inverter temperature, per AMMP asset'; body = <GrapherView />;
   } else if (nav === 'reports') {
@@ -140,15 +136,15 @@ function AppShell() {
     title = 'Settings'; body = <Placeholder title="Settings" />;
   } else {
     title = 'Portfolio Overview';
-    crumb = live ? `Live · ${ammp.matchedCount} of ${BR_DATA.totals.count} sites matched to AMMP` : 'Offline · sample data';
-    body = <PortfolioView live={live} onOpen={openSite} layout={layout} setLayout={setLayout} showLegend={SETTINGS.showLegend} />;
+    crumb = ammp.live ? `Live · ${ammp.sites.length} sites` : 'Not connected';
+    body = <PortfolioView onOpen={openSite} layout={layout} setLayout={setLayout} />;
   }
 
   return (
     <div style={{ ...styleVars, display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <Sidebar nav={site ? null : nav} setNav={(k) => { setSiteId(null); setNav(k); }} live={live} urgent={BR_DATA.totals.urgent} />
+      <Sidebar nav={site ? null : nav} setNav={(k) => { setSiteId(null); setNav(k); }} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <TopBar title={title} crumb={crumb} live={live} onConnect={goConnect} />
+        <TopBar title={title} crumb={crumb} onConnect={goConnect} />
         <main className="scroll" style={{ flex: 1, overflow: 'auto', padding: '20px 24px 60px' }}>
           <div style={{ maxWidth: 1440, margin: '0 auto' }}>{body}</div>
         </main>
@@ -159,7 +155,7 @@ function AppShell() {
 
 function App() {
   return (
-    <AmmpProvider sites={BR_DATA.sites}>
+    <AmmpProvider>
       <AppShell />
     </AmmpProvider>
   );

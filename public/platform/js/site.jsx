@@ -1,143 +1,249 @@
 /* ============================================================
-   Broadreach Platform — Single-site detail view
+   Broadreach Platform — Single-site detail view, real data only.
    ============================================================ */
 
 const { useState: _useState } = React;
 
-function SiteHeader({ site, live, onBack }) {
-  const st = BR_DATA.STATES[site.status] || BR_DATA.STATES.unknown;
+function SiteHeader({ site, onBack }) {
+  const st = STATUS_STATES[site.status] || STATUS_STATES.unknown;
   return (
     <div style={{ marginBottom: 'var(--gap)' }}>
       {onBack && <button onClick={onBack} className="mono" style={{ background: 'none', border: 'none', color: 'var(--br-dk)', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, padding: 0 }}>← Portfolio</button>}
-      <div className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', borderTop: `3px solid ${live ? st.dot : 'var(--br)'}` }}>
-        <StatusGlyph status={site.status} live={live} size={44} />
+      <div className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', borderTop: `3px solid ${st.dot}` }}>
+        <StatusGlyph status={site.status} size={44} />
         <div style={{ flex: 1, minWidth: 200 }}>
           <h1 className="display" style={{ fontSize: '1.8rem', color: 'var(--br-dker)', lineHeight: 1 }}>{site.name}</h1>
           <div className="mono" style={{ fontSize: '0.66rem', color: 'var(--ink-light)', marginTop: 5, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <ContractTag c={site.contract} /> {site.id} · {site.town}, {site.province} · {site.epc} · comm. {site.commissioned.getFullYear()}
+            {site.id}{site.location ? ` · ${site.location}` : ''}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 22, alignItems: 'center' }}>
-          <div style={{ textAlign: 'right' }}>
-            <div className="eyebrow">Capacity</div>
-            <div className="display" style={{ fontSize: '1.45rem' }}>{BR_DATA.fmtKwp(site.kwp)}</div>
-          </div>
-          <div style={{ textAlign: 'right', borderLeft: '1px solid var(--line)', paddingLeft: 22 }}>
-            <div className="eyebrow">{live ? 'Producing now' : 'Status'}</div>
-            {live ? (
-              <div className="display" style={{ fontSize: '1.45rem', color: site.status === 'none' ? 'var(--rd)' : 'var(--grn-ink)' }}>{site.liveKw}<span className="mono" style={{ fontSize: '0.7rem', color: 'var(--ink-light)' }}> kW</span></div>
-            ) : (
-              <div className="display" style={{ fontSize: '1.2rem', color: 'var(--ink-light)' }}>offline</div>
-            )}
-          </div>
-          {live && <span className="pill" style={{ background: 'var(--grn-lt)', borderColor: 'transparent', color: 'var(--grn-ink)' }}><span className="live-dot"></span> LIVE</span>}
+          {site.capacityKw != null && (
+            <div style={{ textAlign: 'right' }}>
+              <div className="eyebrow">Capacity</div>
+              <div className="display" style={{ fontSize: '1.45rem' }}>{site.capacityKw >= 1000 ? (site.capacityKw / 1000).toFixed(2) + ' MWp' : site.capacityKw.toFixed(1) + ' kWp'}</div>
+            </div>
+          )}
+          {site.powerKw != null && (
+            <div style={{ textAlign: 'right', borderLeft: '1px solid var(--line)', paddingLeft: 22 }}>
+              <div className="eyebrow">Now</div>
+              <div className="display" style={{ fontSize: '1.45rem', color: site.status === 'none' ? 'var(--rd)' : 'var(--grn-ink)' }}>{site.powerKw.toFixed(1)}<span className="mono" style={{ fontSize: '0.7rem', color: 'var(--ink-light)' }}> kW</span></div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function EnergyFlow({ seed }) {
+function useSiteKpis(site) {
+  const ammp = useAmmp();
+  const [state, setState] = _useState({ status: 'loading', todayKwh: null, pr: null, availability: null });
+  React.useEffect(() => {
+    let cancelled = false;
+    setState((s) => ({ ...s, status: 'loading' }));
+    (async () => {
+      const now = new Date();
+      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const [energyResp, prResp, lossResp] = await Promise.all([
+        fetchHistoricEnergy(ammp.token, site.id, { dateFrom: startToday.toISOString(), dateTo: now.toISOString(), interval: '1d' }).catch(() => null),
+        fetchPvPerformanceKpis(ammp.token, site.id, { dateFrom: startToday.toISOString(), dateTo: now.toISOString(), interval: '1d' }).catch(() => null),
+        fetchPvYieldLosses(ammp.token, site.id, { dateFrom: startToday.toISOString(), dateTo: now.toISOString(), interval: '1d' }).catch(() => null),
+      ]);
+      if (cancelled) return;
+      const energySeries = extractAssetSeries(energyResp);
+      const energyPick = energySeries.find((s) => /energy|yield|production/i.test(s.key)) || energySeries[0] || null;
+      const todayKwh = energyPick ? energyPick.points.reduce((a, p) => a + (Number(p.value) || 0), 0) : null;
+
+      const prSeries = extractAssetSeries(prResp);
+      const prPick = prSeries.find((s) => /(^|_)pr(_|$)/i.test(s.key));
+      const pr = prPick && prPick.points.length ? Number(prPick.points[prPick.points.length - 1].value) : null;
+
+      const lossSeries = extractAssetSeries(lossResp);
+      const availPick = lossSeries.find((s) => /availab|uptime/i.test(s.key));
+      const availability = availPick && availPick.points.length ? Number(availPick.points[availPick.points.length - 1].value) : null;
+
+      setState({ status: 'ready', todayKwh, pr, availability });
+    })();
+    return () => { cancelled = true; };
+  }, [site.id, ammp.token]);
+  return state;
+}
+
+function useEnergyFlow(site, range) {
+  const ammp = useAmmp();
+  const [state, setState] = _useState({ status: 'loading' });
+  React.useEffect(() => {
+    let cancelled = false;
+    setState({ status: 'loading' });
+    (async () => {
+      try {
+        const now = new Date();
+        const from = range === 'today' ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+          : range === 'week' ? new Date(now.getTime() - 7 * 86400000)
+          : new Date(now.getTime() - 30 * 86400000);
+        const interval = range === 'today' ? '15m' : '1h';
+        const powerResp = await fetchChunked(fetchHistoricPower, ammp.token, site.id, from.toISOString(), now.toISOString(), interval, 7);
+        const prodSeriesAll = extractAssetSeries(powerResp);
+        const prodSeries = prodSeriesAll.find((s) => /power|production/i.test(s.key)) || prodSeriesAll[0] || null;
+        if (!prodSeries || !prodSeries.points.length) { if (!cancelled) setState({ status: 'empty' }); return; }
+
+        const meters = await ammp.devicesFor(site.id, DEVICE_TYPE.METER);
+        let consSeries = null, expSeries = null;
+        if (meters.length) {
+          const meterResp = await fetchChunked(fetchDeviceHistoricMeter, ammp.token, meters[0].device_id, from.toISOString(), now.toISOString(), '15m', 7);
+          const meterSeries = extractDeviceSeries(meterResp);
+          consSeries = meterSeries.find((s) => /import|consum|load/i.test(s.key)) || null;
+          expSeries = meterSeries.find((s) => /export|feed/i.test(s.key)) || null;
+        }
+
+        const fmt = range === 'today' ? { hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: 'short' };
+        const pts = prodSeries.points.map((p, i) => {
+          const point = { t: i, label: new Date(p.date).toLocaleString('en-GB', fmt), prod: Number(p.value) || 0 };
+          if (consSeries) point.cons = Number((consSeries.points[i] || {}).value) || 0;
+          if (expSeries) point.exp = Number((expSeries.points[i] || {}).value) || 0;
+          return point;
+        });
+        if (!cancelled) setState({ status: 'ready', pts, hasCons: !!consSeries, hasExp: !!expSeries });
+      } catch (e) {
+        if (!cancelled) setState({ status: 'error', error: e.message });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [site.id, ammp.token, range]);
+  return state;
+}
+
+function EnergyFlow({ site }) {
   const [range, setRange] = _useState('today');
-  const data = React.useMemo(() => BR_DATA.series(seed, range), [seed, range]);
-  const keys = [
-    { k: 'prod', label: 'Production', c: 'var(--amb)' },
-    { k: 'cons', label: 'Consumption', c: 'var(--br)', fill: false },
-    { k: 'exp', label: 'Grid export', c: 'var(--grn)', fill: false, w: 2 },
-  ];
+  const { status, pts, hasCons, hasExp, error } = useEnergyFlow(site, range);
+  const keys = [{ k: 'prod', label: 'Production', c: 'var(--amb)' }];
+  if (hasCons) keys.push({ k: 'cons', label: 'Consumption', c: 'var(--br)', fill: false });
+  if (hasExp) keys.push({ k: 'exp', label: 'Grid export', c: 'var(--grn)', fill: false, w: 2 });
+
   return (
     <div className="card" style={{ padding: 16, marginBottom: 'var(--gap)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: 0 }}>Energy Flow</h3>
-          <div className="mono" style={{ fontSize: '0.62rem', color: 'var(--ink-light)', marginTop: 2 }}>Production vs consumption vs grid export · estimated</div>
+          <div className="mono" style={{ fontSize: '0.62rem', color: 'var(--ink-light)', marginTop: 2 }}>{hasCons || hasExp ? 'Production vs consumption vs grid export' : 'Production only — no meter device found for this site'}</div>
         </div>
         <div style={{ display: 'flex', gap: 4, background: 'var(--grey-xlt)', border: '1px solid var(--grey-lt)', borderRadius: 8, padding: 3 }}>
-          {[['today', 'Today'], ['week', 'Week'], ['year', 'Year']].map(([v, l]) => (
+          {[['today', 'Today'], ['week', 'Week'], ['month', 'Month']].map(([v, l]) => (
             <button key={v} onClick={() => setRange(v)} className="seg-btn" data-on={range === v}>{l}</button>
           ))}
         </div>
       </div>
-      <FlowChart data={data} keys={keys} height={300} />
-      <div style={{ display: 'flex', gap: 18, marginTop: 8 }}>
-        {keys.map(k => (
-          <span key={k.k} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.68rem', color: 'var(--ink-mid)' }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: k.c }}></span>{k.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SiteOM({ site, onAct }) {
-  const f = flagClass(site.om.daysAway);
-  return (
-    <div className="card" style={{ padding: 16 }}>
-      <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 12px' }}>Next Maintenance</h3>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 11px', borderRadius: 8, background: f.bg, color: f.fg, fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 12 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: f.dot, flexShrink: 0 }}></span> {site.om.task} — {BR_DATA.monthLabel(site.om.date)} ({site.om.daysAway} days)
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-        {[['Modules', site.modules.toLocaleString()], ['Inverters', site.inverters], ['String zones', site.strings], ['Availability', site.availability.toFixed(1) + '%']].map(([l, v]) => (
-          <div key={l}><div className="eyebrow" style={{ fontSize: '0.52rem' }}>{l}</div><div className="display" style={{ fontSize: '1.15rem' }}>{v}</div></div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => onAct('Site visit scheduled for ' + site.name)}>Schedule visit</button>
-        <button className="btn btn-ghost btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => onAct('Report queued for ' + site.name)}>Export report</button>
-      </div>
-    </div>
-  );
-}
-
-function SiteView({ siteId, live, onBack }) {
-  const site = React.useMemo(() => BR_DATA.sites.find(s => s.id === siteId), [siteId]);
-  const bat = React.useMemo(() => BR_DATA.batteryFor(site.seed), [site]);
-  const [toast, setToast] = _useState(null);
-  const act = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
-
-  const todayKwh = site.todayKwh;
-  const monthRev = Math.round(site.kwp * 130 * (0.45 * 0.92 + 0.55 * 2.4));
-
-  return (
-    <div>
-      <SiteHeader site={site} live={live} onBack={onBack} />
-
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${bat ? 5 : 4}, 1fr)`, gap: 'var(--gap)', marginBottom: 'var(--gap)' }}>
-        <KpiCard label="Today's production" value={live ? todayKwh.toLocaleString() : '—'} unit="kWh" sub={live ? `peak ${site.liveKw} kW` : 'offline'} accent="var(--amb)" delta={live ? { up: true, v: '12%' } : null} />
-        <KpiCard label="Performance ratio" value={live ? site.pr.toFixed(2) : '—'} sub="PR · vs 0.82 target" accent="var(--br)" delta={live && site.pr ? { up: site.pr >= 0.82, v: site.pr >= 0.82 ? '+2%' : '-3%' } : null} />
-        <KpiCard label="Availability" value={live ? site.availability.toFixed(1) : '—'} unit="%" sub="trailing 30 days" accent={live && site.availability < 90 ? 'var(--rd)' : 'var(--grn)'} />
-        <KpiCard label="Month revenue" value={live ? 'R' + monthRev.toLocaleString() : '—'} sub="export + savings" accent="var(--grn)" delta={live ? { up: true, v: '8%' } : null} />
-        {bat && <KpiCard label="Battery SOC" value={live ? bat.soc : '—'} unit="%" sub={live ? (bat.charging ? 'charging' : 'discharging') : 'idle'} accent="var(--vio)" />}
-      </div>
-
-      <EnergyFlow seed={site.seed} />
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 'var(--gap)', alignItems: 'start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-          <PanelArray seed={site.seed} kwp={site.kwp} live={live} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)' }}>
-            <RevenuePanel site={site} live={live} />
-            <EnviroPanel site={site} live={live} />
+      {status === 'loading' && <Loading />}
+      {status === 'error' && <ErrorNote message={error} />}
+      {status === 'empty' && <EmptyState title="No power data for this range." />}
+      {status === 'ready' && (
+        <>
+          <FlowChart data={{ pts, unit: 'kW' }} keys={keys} height={300} />
+          <div style={{ display: 'flex', gap: 18, marginTop: 8 }}>
+            {keys.map((k) => (
+              <span key={k.k} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.68rem', color: 'var(--ink-mid)' }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: k.c }}></span>{k.label}
+              </span>
+            ))}
           </div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-          {bat && <BatteryPanel bat={bat} live={live} />}
-          <AlertsPanel seed={site.seed} live={live} />
-          <SiteOM site={site} onAct={act} />
-        </div>
-      </div>
-
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', background: 'var(--br-dker)', color: '#fff', padding: '10px 18px', borderRadius: 9, fontSize: '0.78rem', boxShadow: 'var(--shadow-lg)', zIndex: 200, animation: 'brFadeUp .25s ease' }}>{toast}</div>
+        </>
       )}
     </div>
   );
 }
 
-/* ---------------- full data sheet (all fields) ---------------- */
+function useSiteTickets(site) {
+  const ammp = useAmmp();
+  const [state, setState] = _useState({ status: 'loading', tickets: [] });
+  React.useEffect(() => {
+    let cancelled = false;
+    setState({ status: 'loading', tickets: [] });
+    postTicketsList(ammp.token, {}).then((resp) => {
+      if (cancelled) return;
+      let list = Array.isArray(resp) ? resp : (resp && (resp.tickets || resp.data || resp.results || resp.items));
+      list = Array.isArray(list) ? list : [];
+      setState({ status: 'ready', tickets: list.filter((t) => ticketField(t, 'asset_id', 'site_id') === site.id) });
+    }).catch((e) => { if (!cancelled) setState({ status: 'error', error: e.message, tickets: [] }); });
+    return () => { cancelled = true; };
+  }, [site.id, ammp.token]);
+  return state;
+}
+
+function SiteOM({ site, onAct }) {
+  const { status, tickets, error } = useSiteTickets(site);
+  if (status === 'loading') return <Loading />;
+  if (status === 'error') return <div className="card" style={{ padding: 16 }}><ErrorNote message={error} /></div>;
+  if (!tickets.length) return null;
+
+  const withDue = tickets.map((t) => {
+    const dueRaw = ticketField(t, 'due_date', 'scheduled_date', 'date', 'created_at');
+    const dueDate = dueRaw ? new Date(dueRaw) : null;
+    const valid = dueDate && !isNaN(dueDate.getTime());
+    return { t, dueDate: valid ? dueDate : null, daysAway: valid ? Math.round((dueDate.getTime() - Date.now()) / 86400000) : null };
+  }).sort((a, b) => {
+    if (a.daysAway == null) return 1;
+    if (b.daysAway == null) return -1;
+    return a.daysAway - b.daysAway;
+  });
+  const next = withDue[0];
+  const title = ticketField(next.t, 'title', 'summary', 'description', 'name') || 'Ticket';
+  const f = next.daysAway != null ? flagClass(next.daysAway) : { bg: 'var(--grey-xlt)', fg: 'var(--ink-mid)', dot: 'var(--grey-lt)' };
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 12px' }}>Next Maintenance</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 11px', borderRadius: 8, background: f.bg, color: f.fg, fontFamily: 'var(--font-mono)', fontSize: '0.72rem', marginBottom: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: f.dot, flexShrink: 0 }}></span>
+        {title}{next.dueDate ? ` — ${next.dueDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}{next.daysAway != null ? ` (${next.daysAway} days)` : ''}
+      </div>
+      {tickets.length > 1 && <div className="mono" style={{ fontSize: '0.62rem', color: 'var(--ink-light)' }}>{tickets.length - 1} more ticket{tickets.length - 1 === 1 ? '' : 's'} open for this site</div>}
+    </div>
+  );
+}
+
+function SiteView({ siteId, onBack }) {
+  const ammp = useAmmp();
+  const site = React.useMemo(() => ammp.sites.find((s) => s.id === siteId), [ammp.sites, siteId]);
+  const kpis = useSiteKpis(site);
+
+  if (!site) return <EmptyState title="Site not found." />;
+
+  return (
+    <div>
+      <SiteHeader site={site} onBack={onBack} />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--gap)', marginBottom: 'var(--gap)' }}>
+        <KpiCard label="Today's production" loading={kpis.status === 'loading'} value={kpis.todayKwh != null ? Math.round(kpis.todayKwh).toLocaleString() : null} unit="kWh" accent="var(--amb)" />
+        <KpiCard label="Performance ratio" loading={kpis.status === 'loading'} value={kpis.pr != null ? kpis.pr.toFixed(2) : null} sub="PR" accent="var(--br)" />
+        <KpiCard label="Availability" loading={kpis.status === 'loading'} value={kpis.availability != null ? kpis.availability.toFixed(1) : null} unit="%" accent={kpis.availability != null && kpis.availability < 90 ? 'var(--rd)' : 'var(--grn)'} />
+      </div>
+
+      <EnergyFlow site={site} />
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 'var(--gap)', alignItems: 'start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
+          <PanelArray site={site} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)' }}>
+            <RevenuePanel site={site} />
+            <EnviroPanel site={site} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
+          <BatteryPanel site={site} />
+          <AlertsPanel site={site} />
+          <SiteOM site={site} />
+        </div>
+      </div>
+
+      <SiteDataSheet site={site} />
+    </div>
+  );
+}
+
+/* ---------------- full data sheet — only rows that were actually found ---------------- */
 function DataRow({ k, v, accent }) {
+  if (v == null || v === '') return null;
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
       <span style={{ fontSize: '0.72rem', color: 'var(--ink-light)' }}>{k}</span>
@@ -146,6 +252,8 @@ function DataRow({ k, v, accent }) {
   );
 }
 function DataGroup({ title, children }) {
+  const hasContent = React.Children.toArray(children).some(Boolean);
+  if (!hasContent) return null;
   return (
     <div style={{ breakInside: 'avoid' }}>
       <div className="eyebrow" style={{ color: 'var(--br-dk)', borderBottom: '2px solid var(--br-xlt)', paddingBottom: 5, marginBottom: 4 }}>{title}</div>
@@ -153,53 +261,31 @@ function DataGroup({ title, children }) {
     </div>
   );
 }
-function SiteDataSheet({ site, bat, live }) {
-  const p = BR_DATA.PROV[site.province];
-  const lat = Math.abs(p.lat + (site.map.y - 0.5) * 1.1).toFixed(3);
-  const lng = (p.lng + (site.map.x - 0.5) * 1.1).toFixed(3);
-  const st = BR_DATA.STATES[site.status] || BR_DATA.STATES.unknown;
-  const dash = (v) => live ? v : '—';
-  const contractName = { PPA: 'Power purchase agreement', M: 'Maintenance contract', P: 'Performance contract' }[site.contract];
+function SiteDataSheet({ site }) {
+  const st = STATUS_STATES[site.status] || STATUS_STATES.unknown;
+  const coordStr = site.coords ? `${site.coords.lat.toFixed(3)}, ${site.coords.lng.toFixed(3)}` : null;
   return (
     <div className="card" style={{ padding: 18, marginTop: 'var(--gap)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14, borderBottom: '1px solid var(--grey-lt)', paddingBottom: 8 }}>
         <h3 className="display" style={{ fontSize: '1.15rem', color: 'var(--br-dker)', letterSpacing: '0.8px', margin: 0 }}>Full data sheet</h3>
-        <span className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)' }}>{site.id} · all recorded fields</span>
+        <span className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)' }}>{site.id}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(248px, 1fr))', gap: '6px 32px' }}>
         <DataGroup title="Identification">
           <DataRow k="Site ID" v={site.id} />
           <DataRow k="Site name" v={site.name} />
-          <DataRow k="Contract type" v={contractName} />
-          <DataRow k="EPC contractor" v={site.epc} />
-          <DataRow k="Commissioned" v={site.commissioned.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} />
         </DataGroup>
         <DataGroup title="Location">
-          <DataRow k="Town" v={site.town} />
-          <DataRow k="Province" v={site.province} />
-          <DataRow k="Approx. coordinates" v={`${lat}°S, ${lng}°E`} />
-          <DataRow k="Grid region" v={site.province === 'Western Cape' ? 'Cape' : site.province === 'KwaZulu-Natal' ? 'Coastal' : 'Inland'} />
+          <DataRow k="Location" v={site.location} />
+          <DataRow k="Coordinates" v={coordStr} />
         </DataGroup>
         <DataGroup title="System">
-          <DataRow k="PV capacity" v={BR_DATA.fmtKwp(site.kwp)} />
-          <DataRow k="PV modules" v={site.modules.toLocaleString()} />
-          <DataRow k="Inverters" v={site.inverters} />
-          <DataRow k="String zones" v={site.strings} />
-          <DataRow k="Battery storage" v={bat ? `${bat.capKwh} kWh` : 'None'} />
+          <DataRow k="PV capacity" v={site.capacityKw != null ? `${site.capacityKw.toFixed(1)} kWp` : null} />
         </DataGroup>
         <DataGroup title="Live performance">
-          <DataRow k="Status" v={dash(st.label)} accent={live ? st.dot : null} />
-          <DataRow k="Current output" v={dash(site.liveKw + ' kW')} />
-          <DataRow k="Today's yield" v={dash(site.todayKwh.toLocaleString() + ' kWh')} />
-          <DataRow k="Performance ratio" v={dash(site.pr ? site.pr.toFixed(2) : '0.00')} />
-          <DataRow k="Availability" v={dash(site.availability.toFixed(1) + '%')} accent={live && site.availability < 90 ? 'var(--rd)' : null} />
-          <DataRow k="Active alerts" v={dash(site.alerts)} accent={live && site.alerts > 0 ? 'var(--amb-dk)' : null} />
-        </DataGroup>
-        <DataGroup title="O&amp;M schedule">
-          <DataRow k="Next task" v={site.om.task} />
-          <DataRow k="Scheduled" v={BR_DATA.monthLabel(site.om.date)} />
-          <DataRow k="Days away" v={`${site.om.daysAway} days`} accent={urgencyColor(site.om.daysAway)} />
-          <DataRow k="O&M window" v={site.om.daysAway <= 30 ? 'Urgent (<30d)' : site.om.daysAway <= 60 ? '30–60 days' : site.om.daysAway <= 90 ? '60–90 days' : 'Beyond 90 days'} />
+          <DataRow k="Status" v={st.label} accent={st.dot} />
+          <DataRow k="Current output" v={site.powerKw != null ? `${site.powerKw.toFixed(1)} kW` : null} />
+          <DataRow k="Last data received" v={site.lastDataAt ? new Date(site.lastDataAt).toLocaleString() : null} />
         </DataGroup>
       </div>
     </div>
@@ -207,33 +293,24 @@ function SiteDataSheet({ site, bat, live }) {
 }
 
 /* ---------------- Site Deep Dive page ---------------- */
-function DeepDiveView({ live }) {
+function DeepDiveView() {
+  const ammp = useAmmp();
   const [sel, setSel] = _useState('');
-  const byProv = React.useMemo(() => {
-    const m = {};
-    BR_DATA.sites.slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .forEach(s => { (m[s.province] = m[s.province] || []).push(s); });
-    return m;
-  }, []);
-  // single ordered list matching the dropdown: provinces A→Z, sites A→Z within each
-  const ordered = React.useMemo(() => Object.keys(byProv).sort().flatMap(p => byProv[p]), [byProv]);
-  const site = sel ? BR_DATA.sites.find(s => s.id === sel) : null;
-  const bat = site ? BR_DATA.batteryFor(site.seed) : null;
-  const idx = site ? ordered.findIndex(s => s.id === sel) : -1;
+  const ordered = React.useMemo(() => ammp.sites.slice().sort((a, b) => a.name.localeCompare(b.name)), [ammp.sites]);
+
+  if (!ammp.live) return <ConnectGate note="Sign in with your AMMP x-api-key to load Site Deep Dive." />;
+
+  const site = sel ? ammp.sites.find((s) => s.id === sel) : null;
+  const idx = site ? ordered.findIndex((s) => s.id === sel) : -1;
   const step = (d) => { const n = (idx + d + ordered.length) % ordered.length; setSel(ordered[n].id); window.scrollTo(0, 0); };
 
   return (
     <div>
       <div className="card" style={{ padding: '14px 18px', marginBottom: 'var(--gap)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 8 }}>
         <span className="eyebrow" style={{ flexShrink: 0 }}>Deep dive — select site</span>
-        <select className="fld" value={sel} onChange={e => { setSel(e.target.value); window.scrollTo(0, 0); }} style={{ flex: '1 1 280px', maxWidth: 380, height: 38, fontSize: '0.82rem', fontWeight: 700 }}>
+        <select className="fld" value={sel} onChange={(e) => { setSel(e.target.value); window.scrollTo(0, 0); }} style={{ flex: '1 1 280px', maxWidth: 380, height: 38, fontSize: '0.82rem', fontWeight: 700 }}>
           <option value="">Choose a site…</option>
-          {Object.keys(byProv).sort().map(prov => (
-            <optgroup key={prov} label={prov}>
-              {byProv[prov].map(s => <option key={s.id} value={s.id}>{s.name} · {s.kwp.toFixed(0)} kWp</option>)}
-            </optgroup>
-          ))}
+          {ordered.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         {site && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
@@ -245,22 +322,21 @@ function DeepDiveView({ live }) {
       </div>
       {site ? (
         <div>
-          <SiteView siteId={sel} live={live} />
+          <SiteView siteId={sel} />
           <div style={{ marginTop: 'calc(var(--gap) + 6px)', marginBottom: 10 }}>
             <h2 className="display" style={{ fontSize: '1.28rem', color: 'var(--br-dk)', letterSpacing: '1px', borderBottom: '1px solid var(--grey-lt)', paddingBottom: 8 }}>Per-inverter analysis</h2>
           </div>
-          <InverterSection site={site} live={live} />
-          <SiteDataSheet site={site} bat={bat} live={live} />
+          <InverterSection site={site} />
         </div>
       ) : (
         <div className="card" style={{ padding: '72px 32px', textAlign: 'center' }}>
           <div style={{ fontSize: 38, marginBottom: 10, color: 'var(--br)', lineHeight: 1 }}>⌕</div>
           <div className="display" style={{ fontSize: '1.5rem', color: 'var(--br-dk)', marginBottom: 6 }}>Select a site to begin</div>
-          <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--ink-light)', maxWidth: 420, margin: '0 auto' }}>Choose any of the {BR_DATA.totals.count} portfolio sites from the dropdown above for a full deep dive — live performance, panel array, battery, alerts and the complete data sheet.</div>
+          <div className="mono" style={{ fontSize: '0.72rem', color: 'var(--ink-light)', maxWidth: 420, margin: '0 auto' }}>Choose any of the {ammp.sites.length} connected sites from the dropdown above for a full deep dive.</div>
         </div>
       )}
     </div>
   );
 }
 
-Object.assign(window, { SiteView, DeepDiveView });
+Object.assign(window, { SiteView, DeepDiveView, SiteHeader });

@@ -2,20 +2,18 @@
    Broadreach Platform — shared UI atoms
    ============================================================ */
 
-function StatusGlyph({ status, live, size = 26 }) {
-  const st = BR_DATA.STATES[status] || BR_DATA.STATES.unknown;
-  if (!live) {
-    return (
-      <span title="Connect AMMP for live status" style={{
-        width: size, height: size, borderRadius: '50%', background: '#EEF1F4',
-        border: '1px dashed #CBD2D8', display: 'inline-flex', alignItems: 'center',
-        justifyContent: 'center', flexShrink: 0,
-      }}>
-        <span style={{ width: Math.round(size * 0.34), height: 2, borderRadius: 2, background: '#AEB6BD' }}></span>
-      </span>
-    );
-  }
-  const pulse = status === 'production';
+/* The 4 real, AMMP-derivable states (see js/ammp.jsx deriveStatus) —
+   there is no richer categorical status available from the API today. */
+const STATUS_STATES = {
+  producing: { key: 'producing', label: 'Producing', bg: '#DDEED5', dot: '#4e7d3a' },
+  none:      { key: 'none',      label: 'No production', bg: '#F7D9DE', dot: '#d34a5e' },
+  alert:     { key: 'alert',     label: 'Alert', bg: '#FBEECB', dot: '#e0a93b' },
+  unknown:   { key: 'unknown',   label: 'Unknown', bg: '#EEF1F4', dot: '#9CA3AF' },
+};
+
+function StatusGlyph({ status, size = 26 }) {
+  const st = STATUS_STATES[status] || STATUS_STATES.unknown;
+  const pulse = status === 'producing';
   return (
     <span title={st.label} style={{
       width: size, height: size, borderRadius: '50%', background: st.bg,
@@ -28,11 +26,6 @@ function StatusGlyph({ status, live, size = 26 }) {
       }}></span>
     </span>
   );
-}
-
-function ContractTag({ c }) {
-  const cls = c === 'PPA' ? 'tag-ppa' : c === 'M' ? 'tag-m' : 'tag-p';
-  return <span className={`ctag ${cls}`}>{c}</span>;
 }
 
 function SectionHead({ title, note, right }) {
@@ -53,7 +46,16 @@ function SectionHead({ title, note, right }) {
   );
 }
 
-function KpiCard({ label, value, unit, sub, accent = 'var(--br)', spark, sparkColor, delta }) {
+function KpiCard({ label, value, unit, sub, accent = 'var(--br)', spark, sparkColor, delta, loading }) {
+  if (loading) {
+    return (
+      <div className="card" style={{ padding: 'var(--card-pad)', borderTop: '3px solid var(--grey-lt)' }}>
+        <div className="eyebrow" style={{ marginBottom: 6, opacity: 0.5 }}>{label}</div>
+        <div style={{ height: 28, width: '60%', borderRadius: 6, background: 'var(--grey-xlt)' }} />
+      </div>
+    );
+  }
+  if (value == null) return null;
   return (
     <div className="card" style={{ padding: 'var(--card-pad)', borderTop: `3px solid ${accent}`, position: 'relative' }}>
       <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
@@ -77,4 +79,20 @@ function KpiCard({ label, value, unit, sub, accent = 'var(--br)', spark, sparkCo
   );
 }
 
-Object.assign(window, { StatusGlyph, ContractTag, SectionHead, KpiCard });
+function EmptyState({ title, note }) {
+  return (
+    <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+      <div className="display" style={{ fontSize: '1.1rem', color: 'var(--br-dk)', marginBottom: 6 }}>{title}</div>
+      {note && <div className="mono" style={{ fontSize: '0.7rem', color: 'var(--ink-light)' }}>{note}</div>}
+    </div>
+  );
+}
+
+function ErrorNote({ message }) {
+  if (!message) return null;
+  return (
+    <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--rd)', background: 'var(--rd-lt)', padding: '8px 12px', borderRadius: 8 }}>✗ {message}</div>
+  );
+}
+
+Object.assign(window, { STATUS_STATES, StatusGlyph, SectionHead, KpiCard, EmptyState, ErrorNote });

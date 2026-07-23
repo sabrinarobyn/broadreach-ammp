@@ -21,8 +21,8 @@ function GrapherView() {
   const [devices, setDevices] = _gUseState([]);
   const [devErr, setDevErr] = _gUseState(null);
   const [selected, setSelected] = _gUseState(new Set());
-  const [from, setFrom] = _gUseState('2026-06-03');
-  const [to, setTo] = _gUseState('2026-06-10');
+  const [from, setFrom] = _gUseState(() => grapherIsoDate(new Date(Date.now() - 7 * GRAPH_DAY_MS)));
+  const [to, setTo] = _gUseState(() => grapherIsoDate(new Date()));
   const [tab, setTab] = _gUseState('scatter');
   const [loading, setLoading] = _gUseState(false);
   const [loadErr, setLoadErr] = _gUseState(null);
@@ -32,7 +32,7 @@ function GrapherView() {
     setDevices([]); setSelected(new Set()); setResults(null); setDevErr(null);
     if (!assetId || !ammp.live) return;
     let cancelled = false;
-    ammp.devicesFor(assetId).then(list => {
+    ammp.devicesFor(assetId, DEVICE_TYPE.INVERTER).then(list => {
       if (cancelled) return;
       setDevices(list);
       setSelected(new Set(list.map(d => d.device_id)));
@@ -58,7 +58,7 @@ function GrapherView() {
       const ids = [...selected];
       const out = await Promise.all(ids.map(async (devId, i) => {
         const dev = devices.find(d => d.device_id === devId);
-        const series = await ammp.seriesFor(devId, dateFromIso, dateToIso, r.days);
+        const series = await ammp.inverterSeriesFor(devId, dateFromIso, dateToIso, r.days);
         return { deviceId: devId, name: dev ? dev.device_name : devId, color: GRAPH_COLORS[i % GRAPH_COLORS.length], series };
       }));
       setResults(out);
@@ -70,12 +70,7 @@ function GrapherView() {
   };
 
   if (!ammp.live) {
-    return (
-      <div>
-        <div className="mono" style={{ marginBottom: 'var(--gap)', fontSize: '0.72rem', color: 'var(--ink-light)' }}>Grapher needs a live AMMP connection to list assets and devices.</div>
-        <AmmpBanner />
-      </div>
-    );
+    return <ConnectGate note="Sign in with your AMMP x-api-key to list assets and devices." />;
   }
 
   return (
