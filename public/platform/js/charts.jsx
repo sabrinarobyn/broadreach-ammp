@@ -164,12 +164,15 @@ function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics =
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{c.get(pts[hover])} {c.unit}</span>
             </div>
           ))}
-          {showStrings && pts[0].strings && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.16)' }}>
-              <span style={{ opacity: 0.8 }}>Strings ({series.nStrings})</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{Math.min(...pts[hover].strings).toFixed(1)}–{Math.max(...pts[hover].strings).toFixed(1)} kW</span>
-            </div>
-          )}
+          {showStrings && pts[0].strings && (() => {
+            const vals = pts[hover].strings.filter((v) => v != null);
+            return vals.length ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.16)' }}>
+                <span style={{ opacity: 0.8 }}>Strings ({series.nStrings})</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{Math.min(...vals).toFixed(1)}–{Math.max(...vals).toFixed(1)} kW</span>
+              </div>
+            ) : null;
+          })()}
         </div>
       )}
     </div>

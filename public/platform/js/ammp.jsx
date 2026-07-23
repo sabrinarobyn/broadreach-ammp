@@ -178,6 +178,16 @@ function extractAssetSeries(resp) {
   }));
 }
 
+/* Confirmed via a live 422: daily/monthly-interval endpoints (historic-energy,
+   historic-kpi-data, commercial-kpis/*, interval 1d or 1M) reject any date_from/
+   date_to that isn't exact UTC midnight — {"type":"date_from_datetime_inexact",
+   "msg":"Datetimes provided to dates should have zero time - e.g. be exact dates"}.
+   Sub-day intervals (15m/1h) accept full datetimes fine; only use this for 1d/1M. */
+function utcDateOnly(date) {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
+}
+
 /* AMMP declares each series' own unit (confirmed: "W" for power fields) — scale the
    two base-unit forms down to their kilo- equivalent; anything else (%, kg, currency,
    already-kilo) passes through unchanged. Safe to apply broadly since it only fires
@@ -543,14 +553,21 @@ function AmmpProvider({ children }) {
 }
 
 /* Maps a (possibly chunk-merged) pv-inverter historic-data response into a chart-ready
-   series. Only power + temperature are confirmed available from this endpoint —
-   current/voltage/per-string stay absent (not zeroed/faked) so callers can hide those
-   affordances rather than plot fabricated flat lines. */
+   series. Power + temperature come from confirmed exact keys; per-string channels
+   vary by device so are picked up generically (any device-series key containing
+   "string"), aligned to the power series by timestamp. */
 function toInverterSeries(data, days) {
   const powerSeries = (data && data.pv_inverter_ac_P_total && data.pv_inverter_ac_P_total.datasets && data.pv_inverter_ac_P_total.datasets[0] && data.pv_inverter_ac_P_total.datasets[0].data) || [];
   const tempSeries = (data && data.pv_inverter_temp && data.pv_inverter_temp.datasets && data.pv_inverter_temp.datasets[0] && data.pv_inverter_temp.datasets[0].data) || [];
   const tMap = {};
   tempSeries.forEach((d) => { if (d.value != null) tMap[d.date] = d.value; });
+
+  const stringSeriesList = extractDeviceSeries(data).filter((s) => /string/i.test(s.key));
+  const stringMaps = stringSeriesList.map((s) => {
+    const m = new Map();
+    s.points.forEach((p) => { if (p.value != null) m.set(p.date, p.value / 1000); });
+    return m;
+  });
 
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const pad2 = (n) => (n < 10 ? '0' : '') + n;
@@ -566,8 +583,9 @@ function toInverterSeries(data, days) {
     const ms = dt.getTime();
     if (prevMs != null) energyKwh += power * ((ms - prevMs) / 3600000);
     prevMs = ms;
+    const strings = stringMaps.length ? stringMaps.map((m) => (m.has(d.date) ? +m.get(d.date).toFixed(2) : null)) : null;
     return {
-      m: ms, power, temp, hasTemp, current: null, voltage: null, strings: null,
+      m: ms, power, temp, hasTemp, current: null, voltage: null, strings,
       label: `${dt.getDate()} ${MON[dt.getMonth()]}, ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`,
       short: days <= 1 ? `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}` : `${dt.getDate()} ${MON[dt.getMonth()]}`,
     };
@@ -579,7 +597,7 @@ function toInverterSeries(data, days) {
     peakTemp: pkTemp === -Infinity ? null : +pkTemp.toFixed(1),
     minTemp: loTemp === Infinity ? null : +loTemp.toFixed(1),
     energyKwh: Math.round(energyKwh),
-    nStrings: 0, degradedString: -1,
+    nStrings: stringSeriesList.length, degradedString: -1,
     real: true,
   };
 }
@@ -593,7 +611,7 @@ Object.assign(window, {
   fetchInverterHistoric, fetchDeviceHistoricBattery, fetchDeviceHistoricMeter,
   matchesDeviceType, DEVICE_TYPE,
   chunkDateRange, mergeSeriesResponses, fetchChunked,
-  extractDeviceSeries, extractAssetSeries, humanizeKey, findField, extractScalar, scaleByDeclaredUnit,
+  extractDeviceSeries, extractAssetSeries, humanizeKey, findField, extractScalar, scaleByDeclaredUnit, utcDateOnly,
   extractCapacityKw, extractLocation, extractProvince, extractCoords,
   derivePowerKw, deriveHasAlerts, deriveActiveAlerts, deriveStale, deriveStatus, toSite, toInverterSeries,
   isSastDaylight, formatSAST, parseAmmpDate,

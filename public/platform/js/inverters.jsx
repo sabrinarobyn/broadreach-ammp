@@ -55,8 +55,10 @@ function InverterBlock({ inv, from, to, days, open, onToggle }) {
         ? <div style={{ padding: '0 16px 14px' }}><EmptyState title="No power/temperature data for this range." /></div>
         : (
           <div style={{ padding: '0 16px 14px' }}>
-            <InverterChart series={series} invColor={inv.color} height={260} metrics={series.peakTemp != null ? ['power', 'temp'] : ['power']} />
-            <div className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)', marginTop: 8, textAlign: 'center' }}>Live from AMMP — power{series.peakTemp != null ? ' & temperature' : ''} only; per-string data isn't confirmed available from this endpoint.</div>
+            <InverterChart series={series} invColor={inv.color} height={260} metrics={series.peakTemp != null ? ['power', 'temp'] : ['power']} showStrings={series.nStrings > 0} />
+            <div className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)', marginTop: 8, textAlign: 'center' }}>
+              Live from AMMP — power{series.peakTemp != null ? ' & temperature' : ''}{series.nStrings > 0 ? ` · ${series.nStrings} string${series.nStrings === 1 ? '' : 's'} (faint lines)` : ''}
+            </div>
           </div>
         ))}
     </div>

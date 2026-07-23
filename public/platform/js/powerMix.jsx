@@ -1,9 +1,9 @@
 /* ============================================================
-   Broadreach Platform — Power Mix chart, Data Sheet, Daily PR,
-   environment summary. All fed from AMMP's asset-level historic-*
-   endpoints via the signed-in user's token (js/ammp.jsx). Chart.js
-   (CDN, see index.html) renders the two charts — the existing
-   hand-rolled SVG charts don't cover dual-axis multi-series.
+   Broadreach Platform — Power Mix chart and Daily PR chart, both
+   fed from AMMP's asset-level historic-* endpoints via the signed-in
+   user's token (js/ammp.jsx). Chart.js (CDN, see index.html) renders
+   both — the existing hand-rolled SVG charts don't cover dual-axis
+   multi-series.
    ============================================================ */
 
 function pmIsoDate(d) { return d.toISOString().slice(0, 10); }
@@ -85,26 +85,40 @@ function buildAlignedRows(power, batt, env) {
   });
 }
 
+async function fetchPowerMixRows(token, siteId, dateFrom, dateTo, interval) {
+  const opts = { dateFrom, dateTo, interval };
+  const [power, batt, env] = await Promise.all([
+    fetchHistoricPower(token, siteId, opts).catch(() => null),
+    fetchHistoricBatteryData(token, siteId, opts).catch(() => null),
+    fetchHistoricEnvironmentData(token, siteId, opts).catch(() => null),
+  ]);
+  return buildAlignedRows(power, batt, env);
+}
+
+/* Some accounts/hardware only report power at hourly resolution — requesting 15m
+   from those returns an empty series rather than an error. Try 15m first (finer,
+   preferred); if empty, retry at 1h before giving up. */
 function usePowerMix(site, from, to) {
   const ammp = useAmmp();
-  const [state, setState] = React.useState({ status: 'loading', rows: [] });
+  const [state, setState] = React.useState({ status: 'loading', rows: [], interval: '15m' });
   React.useEffect(() => {
     if (!site) return;
     let cancelled = false;
-    setState({ status: 'loading', rows: [] });
+    setState({ status: 'loading', rows: [], interval: '15m' });
     (async () => {
       try {
-        const opts = { dateFrom: new Date(from + 'T00:00:00Z').toISOString(), dateTo: new Date(to + 'T23:59:59Z').toISOString(), interval: '15m' };
-        const [power, batt, env] = await Promise.all([
-          fetchHistoricPower(ammp.token, site.id, opts).catch(() => null),
-          fetchHistoricBatteryData(ammp.token, site.id, opts).catch(() => null),
-          fetchHistoricEnvironmentData(ammp.token, site.id, opts).catch(() => null),
-        ]);
+        const dateFrom = new Date(from + 'T00:00:00Z').toISOString();
+        const dateTo = new Date(to + 'T23:59:59Z').toISOString();
+        let rows = await fetchPowerMixRows(ammp.token, site.id, dateFrom, dateTo, '15m');
+        let interval = '15m';
+        if (!rows.length) {
+          rows = await fetchPowerMixRows(ammp.token, site.id, dateFrom, dateTo, '1h');
+          interval = '1h';
+        }
         if (cancelled) return;
-        const rows = buildAlignedRows(power, batt, env);
-        setState(rows.length ? { status: 'ready', rows } : { status: 'empty', rows: [] });
+        setState(rows.length ? { status: 'ready', rows, interval } : { status: 'empty', rows: [], interval });
       } catch (e) {
-        if (!cancelled) setState({ status: 'error', error: e.message, rows: [] });
+        if (!cancelled) setState({ status: 'error', error: e.message, rows: [], interval: '15m' });
       }
     })();
     return () => { cancelled = true; };
@@ -155,13 +169,13 @@ function PowerMixChart({ rows, height = 380 }) {
 }
 
 function PowerMixSection({ site, from, to, setFrom, setTo, powerMix }) {
-  const { status, rows, error } = powerMix;
+  const { status, rows, error, interval } = powerMix;
   return (
     <div className="card" style={{ padding: 16, marginBottom: 'var(--gap)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
         <div>
           <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: 0 }}>Power Mix</h3>
-          <div className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)', marginTop: 2 }}>PV, consumption, grid, battery &amp; genset — 15-minute interval</div>
+          <div className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)', marginTop: 2 }}>PV, consumption, grid, battery &amp; genset — {interval === '1h' ? 'hourly' : '15-minute'} interval</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input type="date" className="fld" value={from} onChange={(e) => setFrom(e.target.value)} style={{ fontSize: '0.72rem' }} />
@@ -177,51 +191,6 @@ function PowerMixSection({ site, from, to, setFrom, setTo, powerMix }) {
   );
 }
 
-/* ---------------- Data Sheet (Fix 9) — same aligned rows as the chart ---------------- */
-function fmtNum(v) { return v == null ? '—' : Number(v).toFixed(1); }
-
-function SiteDataSheet({ status, rows }) {
-  if (status === 'loading') return <Loading label="Loading data sheet…" />;
-  if (status !== 'ready' || !rows.length) return null;
-  const MAX_ROWS = 500;
-  const shown = rows.length > MAX_ROWS ? rows.slice(-MAX_ROWS) : rows;
-  const cols = ['Timestamp', 'PV Power (kW)', 'Consumption (kW)', 'Ext. Power (kW)', 'To Grid (kW)', 'Batt SOC (%)', 'Batt Charge (kW)', 'Batt Discharge (kW)', 'Genset (kW)', 'Irradiance (W/m²)'];
-  return (
-    <div className="card" style={{ marginBottom: 'var(--gap)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '14px 18px 8px' }}>
-        <h3 className="display" style={{ fontSize: '1.05rem', color: 'var(--br-dker)', letterSpacing: '0.6px', margin: 0 }}>Data Sheet</h3>
-        {rows.length > MAX_ROWS && <span className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)' }}>showing most recent {MAX_ROWS} of {rows.length} intervals</span>}
-      </div>
-      <div className="scroll" style={{ overflow: 'auto', maxHeight: 360, padding: '0 18px 14px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem', minWidth: 920 }}>
-          <thead>
-            <tr>
-              {cols.map((h, i) => (
-                <th key={h} style={{ background: 'var(--grey-xlt)', color: 'var(--ink-mid)', padding: '6px 10px', textAlign: i === 0 ? 'left' : 'right', fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px', position: 'sticky', top: 0, whiteSpace: 'nowrap' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => (
-              <tr key={r.timestamp}>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>{formatSAST(r.timestamp)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.pv_power)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.load_power)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.gridImport)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.gridExport)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.batt_soc)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.batt_charge_power)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.batt_discharge_power)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.genset_power)}</td>
-                <td className="mono" style={{ padding: '5px 10px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{fmtNum(r.poa_irradiance)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 /* ---------------- Daily PR (Fix 12) ---------------- */
 function useDailyPr(site) {
@@ -233,9 +202,7 @@ function useDailyPr(site) {
     setState({ status: 'loading', days: [] });
     (async () => {
       try {
-        const to = new Date();
-        const from = new Date(to.getTime() - 29 * 86400000);
-        const opts = { dateFrom: from.toISOString(), dateTo: to.toISOString(), interval: '1d' };
+        const opts = { dateFrom: utcDateOnly(Date.now() - 29 * 86400000), dateTo: utcDateOnly(Date.now()), interval: '1d' };
 
         const kpiResp = await fetchHistoricKpiData(ammp.token, site.id, opts).catch(() => null);
         const kpiSeries = extractAssetSeries(kpiResp);
@@ -332,64 +299,7 @@ function DailyPrSection({ site }) {
   );
 }
 
-/* ---------------- Environment summary strip (Fix 12 step 4) ---------------- */
-function useEnvSummary(site) {
-  const ammp = useAmmp();
-  const [state, setState] = React.useState({ status: 'loading' });
-  React.useEffect(() => {
-    if (!site) return;
-    let cancelled = false;
-    setState({ status: 'loading' });
-    (async () => {
-      try {
-        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-        const [mostRecent, envDaily] = await Promise.all([
-          fetchMostRecent(ammp.token, site.id, 3600).catch(() => null),
-          fetchHistoricEnvironmentData(ammp.token, site.id, { dateFrom: todayStart.toISOString(), dateTo: new Date().toISOString(), interval: '1d' }).catch(() => null),
-        ]);
-        if (cancelled) return;
-        const poa = extractScalar(mostRecent, 'irradiance', /irradiance/i);
-        const moduleTemp = extractScalar(mostRecent, 'module_temperature', /module.*temp/i);
-        const ambientTemp = extractScalar(mostRecent, 'ambient_temperature', /ambient.*temp/i);
-        const envSeries = extractAssetSeries(envDaily);
-        const insolPick = envSeries.find((s) => /insolation/i.test(s.key));
-        let insolation = insolPick && insolPick.points.length ? scaleByDeclaredUnit(Number(insolPick.points[insolPick.points.length - 1].value), insolPick.unit) : null;
-        if (insolation != null && insolation > 50) insolation = insolation / 1000;
-        setState({ status: 'ready', poa, moduleTemp, ambientTemp, insolation });
-      } catch (e) {
-        if (!cancelled) setState({ status: 'error', error: e.message });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [site && site.id, ammp.token]);
-  return state;
-}
-
-function EnvChip({ label, value, unit, warn }) {
-  return (
-    <div className="card" style={{ padding: '10px 14px', flex: '1 1 140px', borderTop: `3px solid ${warn ? 'var(--amb)' : 'var(--br-xlt)'}` }}>
-      <div className="eyebrow">{label}</div>
-      <div className="display" style={{ fontSize: '1.15rem', color: warn ? 'var(--amb-dk)' : 'var(--ink)' }}>
-        {value != null ? value : '—'}{value != null && unit && <span className="mono" style={{ fontSize: '0.62rem', color: 'var(--ink-light)', marginLeft: 3 }}>{unit}</span>}
-      </div>
-    </div>
-  );
-}
-
-function EnvSummaryStrip({ site }) {
-  const s = useEnvSummary(site);
-  if (s.status !== 'ready') return null;
-  return (
-    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 'var(--gap)' }}>
-      <EnvChip label="POA Irradiance" value={s.poa != null ? s.poa.toFixed(0) : null} unit="W/m²" />
-      <EnvChip label="Module Temp" value={s.moduleTemp != null ? s.moduleTemp.toFixed(1) : null} unit="°C" warn={s.moduleTemp != null && s.moduleTemp > 65} />
-      <EnvChip label="Ambient Temp" value={s.ambientTemp != null ? s.ambientTemp.toFixed(1) : null} unit="°C" />
-      <EnvChip label="Today's Insolation" value={s.insolation != null ? s.insolation.toFixed(2) : null} unit="kWh/m²" />
-    </div>
-  );
-}
-
 Object.assign(window, {
-  pmIsoDate, usePowerMix, PowerMixChart, PowerMixSection, SiteDataSheet,
-  useDailyPr, DailyPRChart, DailyPrSection, useEnvSummary, EnvSummaryStrip,
+  pmIsoDate, usePowerMix, PowerMixChart, PowerMixSection,
+  useDailyPr, DailyPRChart, DailyPrSection,
 });

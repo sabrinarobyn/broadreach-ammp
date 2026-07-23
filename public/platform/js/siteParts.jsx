@@ -1,68 +1,16 @@
 /* ============================================================
    Broadreach Platform — site-detail panels, all real-data-only.
    Each panel fetches its own endpoint and hides itself (`return null`)
-   when the asset genuinely has no data for it (no battery device, no
-   per-string data found, empty impact series, etc.) rather than
-   showing a placeholder.
+   when the asset genuinely has no data for it (empty impact series,
+   etc.) rather than showing a placeholder. Per-string monitoring
+   lives in js/inverters.jsx, alongside the per-inverter charts it
+   overlays onto.
    ============================================================ */
 
 const { useState: _spUseState } = React;
 
 function Loading({ label }) {
   return <div className="card" style={{ padding: 24, textAlign: 'center' }}><span className="mono" style={{ fontSize: '0.7rem', color: 'var(--ink-light)' }}>{label || 'Loading…'}</span></div>;
-}
-
-/* ---------------- Panel Array (per-string monitoring) ---------------- */
-function usePerStringData(site) {
-  const ammp = useAmmp();
-  const [state, setState] = _spUseState({ status: 'loading', strings: [] });
-  React.useEffect(() => {
-    let cancelled = false;
-    setState({ status: 'loading', strings: [] });
-    (async () => {
-      try {
-        const devices = await ammp.devicesFor(site.id, DEVICE_TYPE.INVERTER);
-        if (!devices.length) { if (!cancelled) setState({ status: 'empty', strings: [] }); return; }
-        const to = new Date(), from = new Date(to.getTime() - 24 * 3600 * 1000);
-        const results = await Promise.all(devices.map((d) =>
-          fetchInverterHistoric(ammp.token, d.device_id, { dateFrom: from.toISOString(), dateTo: to.toISOString(), interval: '15m' }).catch(() => null)));
-        const strings = [];
-        results.forEach((resp, i) => {
-          if (!resp) return;
-          extractDeviceSeries(resp).filter((s) => /string/i.test(s.key)).forEach((s) => {
-            const last = s.points[s.points.length - 1];
-            if (last && last.value != null) strings.push({ inverter: devices[i].device_name || `Inverter ${i + 1}`, label: s.label, value: last.value });
-          });
-        });
-        if (!cancelled) setState({ status: strings.length ? 'ready' : 'empty', strings });
-      } catch (e) {
-        if (!cancelled) setState({ status: 'error', strings: [], error: e.message });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [site.id, ammp.token]);
-  return state;
-}
-
-function PanelArray({ site }) {
-  const { status, strings, error } = usePerStringData(site);
-  if (status === 'loading') return <Loading label="Loading string data…" />;
-  if (status === 'error') return <div className="card" style={{ padding: 16 }}><ErrorNote message={error} /></div>;
-  if (status !== 'ready') return null; // no per-string data confirmed for this asset
-  return (
-    <div className="card" style={{ padding: 16 }}>
-      <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 12px' }}>String Monitoring</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
-        {strings.map((s, i) => (
-          <div key={i} style={{ background: 'var(--grey-xlt)', borderRadius: 7, padding: '10px 8px', textAlign: 'center' }}>
-            <div className="mono" style={{ fontSize: '0.56rem', color: 'var(--ink-light)' }}>{s.inverter}</div>
-            <div className="display" style={{ fontSize: '1rem' }}>{Number(s.value).toFixed(1)}</div>
-            <div className="mono" style={{ fontSize: '0.54rem', color: 'var(--ink-light)' }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /* ---------------- Alerts ---------------- */
@@ -114,8 +62,10 @@ function useEnvironmentalImpact(site) {
   React.useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });
-    const to = new Date(), from = new Date(to.getFullYear(), to.getMonth() - 11, 1);
-    fetchEnvironmentalImpact(ammp.token, site.id, { dateFrom: from.toISOString(), dateTo: to.toISOString(), interval: '1M' }).then((resp) => {
+    const now = new Date();
+    const dateFrom = utcDateOnly(new Date(now.getFullYear(), now.getMonth() - 11, 1));
+    const dateTo = utcDateOnly(now);
+    fetchEnvironmentalImpact(ammp.token, site.id, { dateFrom, dateTo, interval: '1M' }).then((resp) => {
       if (cancelled) return;
       const series = extractAssetSeries(resp);
       setState(series.length ? { status: 'ready', series } : { status: 'empty' });
@@ -154,8 +104,10 @@ function useFinancialImpact(site) {
   React.useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading' });
-    const to = new Date(), from = new Date(to.getFullYear(), to.getMonth(), 1);
-    fetchFinancialImpact(ammp.token, site.id, { dateFrom: from.toISOString(), dateTo: to.toISOString(), interval: '1d' }).then((resp) => {
+    const now = new Date();
+    const dateFrom = utcDateOnly(new Date(now.getFullYear(), now.getMonth(), 1));
+    const dateTo = utcDateOnly(now);
+    fetchFinancialImpact(ammp.token, site.id, { dateFrom, dateTo, interval: '1d' }).then((resp) => {
       if (cancelled) return;
       const series = extractAssetSeries(resp);
       setState(series.length ? { status: 'ready', series } : { status: 'empty' });
@@ -191,4 +143,4 @@ function RevenuePanel({ site }) {
   );
 }
 
-Object.assign(window, { PanelArray, AlertsPanel, EnviroPanel, RevenuePanel, Loading });
+Object.assign(window, { AlertsPanel, EnviroPanel, RevenuePanel, Loading });
