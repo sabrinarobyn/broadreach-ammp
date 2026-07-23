@@ -106,11 +106,13 @@ select:focus,input:focus{border-color:var(--brand);}
       <div class="header-title">Broadreach — Portfolio Overview</div>
       <div class="header-sub">Live status · O&amp;M schedule · 69 sites as at 10 Jun 2026</div>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;">
-      <span class="pill">O&amp;M Schedule embedded</span>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <span class="pill" id="ammpStatusPill">Signing in…</span>
       <a href="grapher.html" style="text-decoration:none;">
         <button class="btn-sm btn-primary">→ Open grapher</button>
       </a>
+      <a href="index.html" style="text-decoration:none;"><button class="btn-sm">← Home</button></a>
+      <button class="btn-sm" onclick="signOut()">Sign out</button>
     </div>
   </div>
 </header>
@@ -142,7 +144,7 @@ select:focus,input:focus{border-color:var(--brand);}
   <div class="kpi" style="--accent:var(--brand)">
     <div class="kpi-label">AMMP connected</div>
     <div class="kpi-val" id="kpiAmmp">—</div>
-    <div class="kpi-sub">authenticate to check</div>
+    <div class="kpi-sub">live from AMMP</div>
   </div>
 </div>
 
@@ -187,15 +189,6 @@ select:focus,input:focus{border-color:var(--brand);}
 <div class="sec-heading">
   Portfolio
   <span class="sec-note" id="gridSubtitle">Showing all sites</span>
-</div>
-<div class="notice" id="ammpNotice">
-  Connect to AMMP to show live status indicators — enter your API key in the grapher and come back, or authenticate below.
-</div>
-<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;" id="quickAuthRow">
-  <span class="filter-label">Quick auth:</span>
-  <input type="password" id="quickKey" placeholder="x-api-key" style="width:260px;"/>
-  <button class="btn-sm btn-primary" onclick="quickAuth()">Authenticate</button>
-  <span id="quickAuthSt" style="font-size:0.75rem;font-family:DM Mono,monospace;display:none;"></span>
 </div>
 
 <div class="portfolio-grid" id="portfolioGrid"></div>
@@ -358,41 +351,42 @@ function renderMaintTable() {
   }).join('');
 }
 
-// Quick AMMP auth to pull live status
-async function quickAuth() {
-  const apiKey = document.getElementById('quickKey').value.trim();
-  const st = document.getElementById('quickAuthSt');
-  st.style.display=''; st.style.color='#6B7280'; st.textContent='Authenticating…';
+// ── session auth ────────────────────────────────────────────────────────
+const KEY_STORE='ammpKey';
+function signOut(){ sessionStorage.removeItem(KEY_STORE); location.href='index.html'; }
 
+// Auto-authenticate from the key stored at login. No key, or a rejected key,
+// sends the user back to the login page.
+async function initAuth(){
+  const apiKey = sessionStorage.getItem(KEY_STORE);
+  const pill = document.getElementById('ammpStatusPill');
+  if(!apiKey){ location.replace('index.html'); return; }
   try {
     const r = await fetch(`/auth/token`, {method:'POST', headers:{'x-api-key':apiKey}});
-    const d = await r.json();
-    if (!r.ok || !d.access_token) { st.style.color='#9B1B1D'; st.textContent=`✗ ${r.status}`; return; }
+    const d = await r.json().catch(()=>({}));
+    if (!r.ok || !d.access_token) { sessionStorage.removeItem(KEY_STORE); location.replace('index.html'); return; }
     const token = d.access_token;
 
-    st.textContent='Fetching assets…';
     const ar = await fetch(`/proxy/v1/assets`, {headers:{Authorization:`Bearer ${token}`}});
     ammpAssets = await ar.json();
 
     document.getElementById('kpiAmmp').textContent = ammpAssets.length;
     document.getElementById('kpiAmmp').nextElementSibling.textContent = 'assets in AMMP';
-    document.getElementById('ammpNotice').style.display='none';
+    pill.textContent = `✓ ${ammpAssets.length} AMMP assets`;
 
     // Match AMMP assets to O&M sites by fuzzy name
     ammpAssets.forEach(a => {
-      const name = a.asset_name.toLowerCase();
+      const name = (a.asset_name||'').toLowerCase();
       OM_DATA.sites.forEach(s => {
         const sname = s.site.toLowerCase();
-        if (name.includes(sname.split(' ')[0]) || sname.includes(name.split(' ')[0])) {
-          if (!siteStatusMap[s.site]) siteStatusMap[s.site] = 'good'; // default to good if matched
+        if (name && (name.includes(sname.split(' ')[0]) || sname.includes(name.split(' ')[0]))) {
+          if (!siteStatusMap[s.site]) siteStatusMap[s.site] = 'good';
         }
       });
     });
-
-    st.style.color='#477735'; st.textContent=`✓ ${ammpAssets.length} assets loaded`;
     renderGrid();
   } catch(e) {
-    st.style.color='#9B1B1D'; st.textContent='✗ ' + e.message;
+    pill.textContent = '✗ AMMP unreachable';
   }
 }
 
@@ -414,6 +408,7 @@ function openInGrapher(siteName) {
 
 renderGrid();
 renderMaintTable();
+initAuth();
 </script>
 </body>
 </html>

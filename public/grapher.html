@@ -107,8 +107,13 @@ canvas{max-height:300px;}
       <div class="header-title">AMMP — Power vs Inverter Temperature</div>
       <div class="header-sub">PV inverter monitoring · data-api.ammp.io</div>
     </div>
-    <div style="text-align:right;">
+    <div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
       <div class="source-pill">AMMP Data API v1</div>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <span id="authSt" class="st" style="display:none;"></span>
+        <a href="index.html" style="font-family:'DM Mono',monospace;font-size:0.68rem;color:var(--brand);text-decoration:none;">← Home</a>
+        <button onclick="signOut()" style="background:none;border:none;font-family:'DM Mono',monospace;font-size:0.68rem;color:var(--ink-light);text-decoration:underline;cursor:pointer;padding:0;">Sign out</button>
+      </div>
     </div>
   </div>
 </header>
@@ -118,21 +123,8 @@ canvas{max-height:300px;}
 <!-- AUTH + ASSET side by side -->
 <div class="grid-2">
 
-  <div class="card">
-    <div class="step-label">1 · Authenticate</div>
-    <div id="proxyNotice" class="notice n-info">Checking proxy…</div>
-    <div class="field-row" style="grid-template-columns:80px 1fr;">
-      <label>API key</label>
-      <input type="password" id="apiKey" placeholder="x-api-key"/>
-    </div>
-    <div style="display:flex;gap:10px;align-items:center;margin-top:4px;">
-      <button class="btn-primary" onclick="authenticate()">Authenticate</button>
-      <span id="authSt" class="st" style="display:none;"></span>
-    </div>
-  </div>
-
   <div class="card" id="assetCard" style="display:none;">
-    <div class="step-label">2 · Select asset</div>
+    <div class="step-label">1 · Select asset</div>
     <div class="field-row" style="grid-template-columns:70px 1fr;">
       <label>Asset</label>
       <select id="assetSelect" onchange="onAssetChange()">
@@ -146,7 +138,7 @@ canvas{max-height:300px;}
 
 <!-- CONFIG -->
 <div class="card" id="configCard" style="display:none;">
-  <div class="step-label">3 · Configure</div>
+  <div class="step-label">2 · Configure</div>
 
   <div class="field-row" style="align-items:flex-start;">
     <label style="padding-top:6px;">Inverters</label>
@@ -229,31 +221,32 @@ const TICK={font:{family:'DM Mono',size:10},color:'#9CA3AF'};
 let token='', currentAssetId='', inverters=[], selected=new Set();
 let scatterInst; let tsInstances=[]; let tsInvState={}; // devId -> visible bool
 
-// ── proxy ────────────────────────────────────────────────────────────────────
-async function checkProxy(){
-  const n=document.getElementById('proxyNotice');
-  n.className='notice n-info'; n.textContent='Connecting…';
-  try{
-    const r=await fetch(`/health`,{signal:AbortSignal.timeout(4000)});
-    if(r.ok){n.className='notice n-ok';n.textContent='✓ Connected. Enter your API key to authenticate.';}
-    else throw 0;
-  }catch{n.className='notice n-err';n.textContent='✗ Could not reach the service. Refresh in a moment.';}
-}
+// ── auth (session-based) ───────────────────────────────────────────────────
+const KEY_STORE='ammpKey';
+function signOut(){ sessionStorage.removeItem(KEY_STORE); location.href='index.html'; }
 
-// ── auth ─────────────────────────────────────────────────────────────────────
-async function authenticate(){
-  const apiKey=document.getElementById('apiKey').value.trim();
+// Exchange the stored key for a bearer token and load assets. If there is no
+// key, or AMMP rejects it, send the user back to the login page.
+async function initAuth(){
+  const apiKey=sessionStorage.getItem(KEY_STORE);
+  if(!apiKey){ location.replace('index.html'); return; }
   const s=document.getElementById('authSt');
-  s.style.display='';s.className='st st-pending';s.textContent='Authenticating…';
+  s.style.display='';s.className='st st-pending';s.textContent='Signing in…';
   token='';
   try{
     const r=await fetch(`/auth/token`,{method:'POST',headers:{'x-api-key':apiKey}});
-    const d=await r.json();
-    if(!r.ok||!d.access_token){s.className='st st-err';s.textContent=`✗ ${r.status}: ${JSON.stringify(d)}`;return;}
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.access_token){
+      sessionStorage.removeItem(KEY_STORE);
+      location.replace('index.html');
+      return;
+    }
     token=d.access_token;
-    s.className='st st-ok';s.textContent='✓ Authenticated.';
+    s.className='st st-ok';s.textContent='✓ Signed in';
     await loadAssets();
-  }catch(e){s.className='st st-err';s.textContent='✗ '+e.message;}
+  }catch(e){
+    s.className='st st-err';s.textContent='✗ Connection error';
+  }
 }
 
 // ── assets ───────────────────────────────────────────────────────────────────
@@ -600,7 +593,7 @@ function updateToggleAllBtn(){
 }
 
 // ── init ──────────────────────────────────────────────────────────────────────
-checkProxy();
+initAuth();
 const _to=new Date(),_fr=new Date(_to);_fr.setDate(_fr.getDate()-7);
 document.getElementById('dateTo').value=_to.toISOString().slice(0,10);
 document.getElementById('dateFrom').value=_fr.toISOString().slice(0,10);

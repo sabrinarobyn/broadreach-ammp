@@ -1,0 +1,180 @@
+/* ============================================================
+   Broadreach Platform — design tokens & shared styles
+   Light / slate aesthetic from the Figma portfolio layout.
+   ============================================================ */
+
+:root {
+  /* Brand steel blue — exact Broadreach Energy DS token (--br-steel-500) */
+  --br: #5d809a;
+  --br-dk: #547892;   /* steel-600 · primary hover  */
+  --br-dker: #2e4250; /* slate-700 · headings        */
+  --br-lt: color-mix(in oklab, var(--br), #fff 58%);
+  --br-xlt: color-mix(in oklab, var(--br), #fff 87%);
+
+  /* Field-status accents — exact DS tokens */
+  --grn: #4e7d3a;  --grn-lt: #DDEED5;  --grn-ink: #305122;
+  --rd: #d34a5e;   --rd-lt: #F7D9DE;
+  --amb: #c86a1a;  --amb-lt: #F7E3CF;  --amb-dk: #b25c14;
+  --vio: #6D4AC2;  --vio-lt: #ECE6FA;
+  --cyan: #1B7E8C; --cyan-lt: #D4EFF2;
+
+  /* Cool neutrals — DS gray ramp */
+  --grey-lt: #DFE5EA;
+  --grey-xlt: #F2F5F7;
+  --ink: #1A232B;
+  --ink-mid: #56636E;
+  --ink-light: #6B7785;
+  --line: #DFE5EA;
+  --page: #F2F5F7;
+  --card: #FFFFFF;
+
+  --radius: 10px;
+  --radius-sm: 7px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(43,68,83,0.06), 0 1px 3px rgba(43,68,83,0.05);
+  --shadow-md: 0 2px 4px rgba(43,68,83,0.06), 0 6px 16px rgba(43,68,83,0.08);
+  --shadow-lg: 0 10px 30px rgba(43,68,83,0.14);
+
+  /* Direction C — single family. One humanist grotesque runs the whole system;
+     hierarchy comes from weight (up to 800), uppercase + letter-spacing, and
+     tabular numerals. The --font-display / --font-mono names are kept for
+     backwards-compat but all three resolve to Hanken Grotesk. */
+  --font-display: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-body: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+
+  /* density (overwritten by tweaks) */
+  --gap: 12px;
+  --card-pad: 14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font-body);
+  background: var(--page);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root { height: 100%; }
+
+button { font-family: inherit; cursor: pointer; }
+input { font-family: inherit; }
+
+/* ---------- Typographic helpers ----------
+   Single family: presence comes from the 800 weight + tight tracking + tabular
+   figures, not from a condensed display face. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.02;
+  font-variant-numeric: tabular-nums;
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-light);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Scrollbars ---------- */
+.scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.scroll::-webkit-scrollbar-thumb { background: #cfd6dc; border-radius: 6px; border: 2px solid var(--page); }
+.scroll::-webkit-scrollbar-thumb:hover { background: #b6bfc7; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Pills / tags ---------- */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--br-xlt); border: 1px solid var(--br-lt); color: var(--br-dk);
+  font-size: 0.62rem; padding: 3px 9px; border-radius: 20px;
+  font-family: var(--font-mono); font-weight: 500; white-space: nowrap;
+}
+.ctag {
+  display: inline-block; font-size: 0.56rem; font-family: var(--font-mono);
+  padding: 1px 6px; border-radius: 8px; border: 1px solid; font-weight: 600;
+  letter-spacing: 0.3px; vertical-align: middle;
+}
+.tag-ppa { background: #D8E1F9; color: #315EDC; border-color: #BCCDF4; }
+.tag-m   { background: var(--grn-lt); color: var(--grn-ink); border-color: #B6D6A6; }
+.tag-p   { background: var(--amb-lt); color: var(--amb-dk); border-color: #EFCBA1; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 15px; border-radius: 8px; font-size: 0.74rem; font-weight: 700;
+  border: none; background: var(--br); color: #fff; transition: background 0.15s, transform 0.05s;
+}
+.btn:hover { background: var(--br-dk); }
+.btn:active { transform: translateY(1px); }
+.btn-ghost {
+  background: #fff; color: var(--ink); border: 1px solid var(--grey-lt);
+}
+.btn-ghost:hover { background: var(--grey-xlt); border-color: #d3d9df; }
+.btn-sm { padding: 5px 11px; font-size: 0.68rem; }
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------- focus-visible ---------- */
+:focus-visible { outline: 2px solid var(--br); outline-offset: 2px; }
+
+/* ---------- entrance ---------- */
+@keyframes brFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes brFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes brPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--grn);
+  display: inline-block; animation: brPulse 2s ease-in-out infinite;
+}
+
+/* ---------- form fields ---------- */
+.fld {
+  padding: 7px 11px; border: 1px solid var(--grey-lt); border-radius: 8px;
+  font-size: 0.74rem; background: #fff; color: var(--ink); height: 34px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.fld::placeholder { color: #9CA3AF; }
+.fld:focus { outline: none; border-color: var(--br); box-shadow: 0 0 0 3px color-mix(in oklab, var(--br), transparent 82%); }
+select.fld { cursor: pointer; padding-right: 26px; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+.fld:disabled { background: var(--grey-xlt); color: #B6BEC5; cursor: not-allowed; }
+
+/* ---------- segmented buttons ---------- */
+.seg-btn {
+  border: none; background: transparent; color: var(--ink-mid);
+  font-size: 0.68rem; font-weight: 700; padding: 5px 11px; border-radius: 6px;
+  font-family: var(--font-body); transition: background 0.12s, color 0.12s; white-space: nowrap;
+}
+.seg-btn:hover { color: var(--br-dk); }
+.seg-btn[data-on="true"] { background: var(--br); color: #fff; }
+
+/* ---------- cards / rows ---------- */
+.site-card { transition: box-shadow 0.16s, transform 0.16s, border-color 0.16s; }
+.site-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.ops-row { transition: background 0.1s; }
+.ops-row:hover td { background: var(--br-xlt) !important; }
+
+/* ---------- spinner ---------- */
+.spin { display: inline-block; animation: brSpin 0.7s linear infinite; font-size: 14px; }
+@keyframes brSpin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

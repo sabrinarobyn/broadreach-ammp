@@ -3,7 +3,8 @@
 A small web app for the team: one Node server that both **proxies the AMMP Data API**
 (handling the CORS + token exchange the browser can't do on its own) and **serves the
 dashboard pages**. Because the pages and the API share one origin, teammates just open a
-URL and paste their own AMMP API key — no install, no localhost, no port to configure.
+URL, sign in with their own AMMP API key, and go — no install, no localhost, no port to
+configure. The API key acts as the password: nothing loads without a valid one.
 
 ```
 ammp-proxy/
@@ -11,10 +12,9 @@ ammp-proxy/
   package.json
   render.yaml        one-click deploy config for Render
   public/
-    index.html       landing page linking the three tools
+    index.html       sign-in gate (verifies the key with AMMP, then unlocks the tools)
     portfolio.html   fleet overview + O&M schedule
     grapher.html     per-asset power-vs-temp charts
-    tester.html      API tester / asset inspector
 ```
 
 ## Deploy so the team can use it (Render, free)
@@ -29,9 +29,11 @@ one service.
 3. When it finishes, you get a URL like `https://broadreach-ammp.onrender.com`.
    Share that with the team.
 
-Every person opens the URL and enters their **own** AMMP `x-api-key`. The key lives in
-their browser for that session only and is forwarded straight to AMMP — this server
-stores no keys.
+Every person opens the URL and signs in with their **own** AMMP `x-api-key`. The key is
+verified against AMMP on sign-in, then held in that browser tab only (`sessionStorage`) —
+closing the tab signs them out. It's forwarded straight to AMMP; this server stores no
+keys. The tools redirect back to the sign-in page if there's no valid key, so the data is
+gated behind a working AMMP key.
 
 > Free-plan note: Render idles the service after ~15 min of no traffic, so the first
 > visit after a quiet spell takes ~30s to wake. Fine for occasional team use; upgrade
