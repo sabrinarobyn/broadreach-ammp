@@ -29,9 +29,21 @@ function qs(params) {
     .join('&');
 }
 
+// If the Broadreach app-access cookie has expired mid-session, the server's
+// requireAppAccess middleware 401s every request (including these) with this
+// code. Distinct from AMMP itself rejecting a key/token (r.status===401 with
+// no such code) — only redirect for the app-gate case, not an AMMP auth error.
+function redirectToAppAccessGate() {
+  location.href = '/access/?next=' + encodeURIComponent(location.pathname);
+}
+
 async function apiGet(token, path) {
   const r = await fetch(`/proxy/${path}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) {
+    if (r.status === 401) {
+      const body = await r.clone().json().catch(() => ({}));
+      if (body.code === 'APP_ACCESS_REQUIRED') { redirectToAppAccessGate(); return new Promise(() => {}); }
+    }
     const txt = await r.text().catch(() => '');
     throw new Error(`${path.split('?')[0]} failed (${r.status})${txt ? `: ${txt.slice(0, 200)}` : ''}`);
   }
@@ -43,6 +55,7 @@ async function apiGet(token, path) {
 async function authenticate(apiKey) {
   const r = await fetch('/auth/token', { method: 'POST', headers: { 'x-api-key': apiKey } });
   const d = await r.json().catch(() => ({}));
+  if (r.status === 401 && d.code === 'APP_ACCESS_REQUIRED') { redirectToAppAccessGate(); return new Promise(() => {}); }
   if (!r.ok || !d.access_token) {
     throw new Error(r.status === 401 || r.status === 403 ? 'That key was rejected by AMMP.' : `Sign-in failed (${r.status}).`);
   }
@@ -371,6 +384,21 @@ function formatSAST(dateInput) {
   return `${pad2(s.getUTCDate())} ${SAST_MONTHS[s.getUTCMonth()]} ${s.getUTCFullYear()} ${pad2(s.getUTCHours())}:${pad2(s.getUTCMinutes())}`;
 }
 
+/* Relative "N minutes/hours/days ago" display for a timestamp, recomputed
+   against the caller-supplied "now" so a live re-render (e.g. a 60s tick) just
+   reformats the same underlying value rather than needing a re-fetch. */
+function formatRelativeTime(dateInput, nowMs) {
+  if (!dateInput) return null;
+  const t = parseAmmpDate(dateInput).getTime();
+  if (!isFinite(t)) return null;
+  const now = nowMs != null ? nowMs : Date.now();
+  const diffMin = Math.max(0, Math.round((now - t) / 60000));
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffMin < 24 * 60) return `${Math.round(diffMin / 60)} hr ago`;
+  return `${Math.round(diffMin / 1440)} d ago`;
+}
+
 /* The 4 real, derivable states — replaces an earlier invented 7-state enum
    (production/issues/weather/throttling/export/shedding) that had no single
    confirmed AMMP source. producing/none is now decided by the PV-output ratio
@@ -444,6 +472,13 @@ function AmmpProvider({ children }) {
       const powerKw = derivePowerKw(mostRecent);
       const pvRatioPct = (powerKw != null && capacityKw) ? Math.max(0, Math.min(100, (powerKw / capacityKw) * 100)) : null;
       const hasAlerts = deriveHasAlerts(statusInfo);
+      // deriveActiveAlerts already runs over the statusInfo response fetched
+      // above for hasAlerts — no extra request needed to surface *when* the
+      // most recent alert happened.
+      const activeAlerts = deriveActiveAlerts(statusInfo);
+      const lastAlertAt = activeAlerts.length
+        ? new Date(Math.max(...activeAlerts.map((a) => a._t || 0))).toISOString()
+        : null;
       const lastDataField = findField(lastData, /time|date|received|timestamp/i);
       const stale = deriveStale(lastData);
       return {
@@ -456,6 +491,7 @@ function AmmpProvider({ children }) {
         powerKw,
         pvRatioPct,
         hasAlerts,
+        lastAlertAt,
         stale,
         lastDataAt: lastDataField ? lastDataField.value : null,
         status: deriveStatus({ powerKw, pvRatioPct, hasAlerts, stale, daylight }),
@@ -614,5 +650,5 @@ Object.assign(window, {
   extractDeviceSeries, extractAssetSeries, humanizeKey, findField, extractScalar, scaleByDeclaredUnit, utcDateOnly,
   extractCapacityKw, extractLocation, extractProvince, extractCoords,
   derivePowerKw, deriveHasAlerts, deriveActiveAlerts, deriveStale, deriveStatus, toSite, toInverterSeries,
-  isSastDaylight, formatSAST, parseAmmpDate,
+  isSastDaylight, formatSAST, formatRelativeTime, parseAmmpDate,
 });

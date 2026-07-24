@@ -8,6 +8,83 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const AMMP_BASE = 'https://data-api.ammp.io';
 
+// Broadreach app-level access gate — a single shared password that guards the
+// whole app (static files, the AMMP proxy, everything), independent of each
+// user's own AMMP x-api-key/session below. If APP_ACCESS_PASSWORD isn't set,
+// the gate no-ops (same open-by-default posture as the optional DATABASE_URL
+// above) so local dev without the var keeps working unchanged.
+const ACCESS_COOKIE = 'br_access';
+const APP_ACCESS_TTL_MS = (Number(process.env.APP_ACCESS_TTL_DAYS) || 30) * 86400000;
+if (!process.env.APP_ACCESS_PASSWORD) {
+  console.warn('APP_ACCESS_PASSWORD not set — the Broadreach app access gate is DISABLED (app is open, as today).');
+}
+
+function parseCookies(header) {
+  const out = {};
+  if (!header) return out;
+  header.split(';').forEach((pair) => {
+    const idx = pair.indexOf('=');
+    if (idx === -1) return;
+    const k = pair.slice(0, idx).trim();
+    const v = pair.slice(idx + 1).trim();
+    if (k) out[k] = decodeURIComponent(v);
+  });
+  return out;
+}
+
+function signAccessPayload(payload) {
+  return crypto.createHmac('sha256', process.env.APP_ACCESS_PASSWORD).update(payload).digest('hex');
+}
+
+function makeAccessToken() {
+  const exp = String(Date.now() + APP_ACCESS_TTL_MS);
+  return `${exp}.${signAccessPayload(exp)}`;
+}
+
+function verifyAccessToken(token) {
+  if (!token || typeof token !== 'string') return false;
+  const dot = token.indexOf('.');
+  if (dot === -1) return false;
+  const exp = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  if (!exp || !sig) return false;
+  let expected, got;
+  try {
+    expected = Buffer.from(signAccessPayload(exp), 'hex');
+    got = Buffer.from(sig, 'hex');
+  } catch {
+    return false;
+  }
+  if (expected.length !== got.length || !crypto.timingSafeEqual(expected, got)) return false;
+  return Date.now() < Number(exp);
+}
+
+function passwordMatches(supplied) {
+  const a = crypto.createHash('sha256').update(String(supplied || '')).digest();
+  const b = crypto.createHash('sha256').update(String(process.env.APP_ACCESS_PASSWORD)).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+function isPublicAccessPath(p) {
+  return p === '/api/access/login' || p === '/api/access/logout' || p === '/api/access/status'
+    || p === '/access' || p.startsWith('/access/') || p === '/health';
+}
+
+// Gates everything registered after it: static files, /auth/token, /proxy/*,
+// /api/om/*. Does NOT touch AMMP auth itself (below) — this only decides
+// whether the browser is allowed to talk to this server at all.
+function requireAppAccess(req, res, next) {
+  if (!process.env.APP_ACCESS_PASSWORD) return next();
+  if (isPublicAccessPath(req.path)) return next();
+  const cookies = parseCookies(req.headers.cookie);
+  if (verifyAccessToken(cookies[ACCESS_COOKIE])) return next();
+  const isApiish = req.path.startsWith('/proxy') || req.path.startsWith('/auth') || req.path.startsWith('/api');
+  if (isApiish || req.method !== 'GET') {
+    return res.status(401).json({ error: 'Not authenticated', code: 'APP_ACCESS_REQUIRED' });
+  }
+  return res.redirect('/access/?next=' + encodeURIComponent(req.originalUrl));
+}
+
 // O&M schedule store. Optional — if DATABASE_URL isn't set (e.g. local dev without
 // a Postgres instance linked), /api/om/* responds 503 instead of the server crashing.
 const pool = process.env.DATABASE_URL
@@ -37,6 +114,34 @@ if (pool) ensureOmTable().catch((err) => console.error('Failed to prepare om_tas
 
 app.use(cors());
 app.use(express.json());
+app.use(requireAppAccess);
+
+app.post('/api/access/login', (req, res) => {
+  if (!process.env.APP_ACCESS_PASSWORD) return res.status(503).json({ error: 'Access gate not configured.' });
+  const { password } = req.body || {};
+  if (!password || !passwordMatches(password)) {
+    return res.status(401).json({ error: 'Incorrect password.' });
+  }
+  res.cookie(ACCESS_COOKIE, makeAccessToken(), {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: APP_ACCESS_TTL_MS,
+    secure: req.secure || req.get('x-forwarded-proto') === 'https',
+  });
+  res.json({ ok: true });
+});
+
+app.post('/api/access/logout', (req, res) => {
+  res.clearCookie(ACCESS_COOKIE, { path: '/' });
+  res.json({ ok: true });
+});
+
+app.get('/api/access/status', (req, res) => {
+  if (!process.env.APP_ACCESS_PASSWORD) return res.json({ authenticated: true, gateDisabled: true });
+  const cookies = parseCookies(req.headers.cookie);
+  res.json({ authenticated: verifyAccessToken(cookies[ACCESS_COOKIE]) });
+});
 
 // Serve the dashboard pages from this same origin. Because the pages and the
 // proxy share an origin, the pages call the API with relative paths -- no

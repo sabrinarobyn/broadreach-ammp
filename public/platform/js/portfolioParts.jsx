@@ -44,6 +44,16 @@ function SiteTable({ sites, onOpen, sort, setSort }) {
   ];
   const arrow = (c) => (c.sortable !== false && sort.k === c.k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '');
   const click = (c) => { if (c.sortable === false) return; setSort((p) => ({ k: c.k, dir: p.k === c.k ? -p.dir : 1 })); };
+
+  // Live-ticking "now" so relative-time cells (Last Updated, last-alert time)
+  // stay current without re-fetching — same clock-tick pattern as app.jsx's
+  // TopBar, just on a slower 60s cadence since these deal in minutes/hours.
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <div className="card scroll" style={{ overflow: 'auto' }}>
       <table className="ops-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem', minWidth: 780 }}>
@@ -67,8 +77,15 @@ function SiteTable({ sites, onOpen, sort, setSort }) {
                 <td style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', fontWeight: 700 }}>{s.name}</td>
                 <td className="mono" style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: '0.66rem', color: 'var(--ink-mid)' }}>{s.province || '—'}</td>
                 <td className="mono" style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>{s.capacityKw != null ? s.capacityKw.toFixed(1) : '—'}</td>
-                <td className="mono" style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: '0.66rem', color: st.dot, fontWeight: 700 }}>{st.label}</td>
-                <td className="mono" style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: '0.64rem', color: 'var(--ink-mid)' }}>{s.lastDataAt ? formatSAST(s.lastDataAt) : '—'}</td>
+                <td className="mono" style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: '0.66rem', color: st.dot, fontWeight: 700 }}>
+                  {st.label}
+                  {s.status === 'alert' && s.lastAlertAt && (
+                    <div title={formatSAST(s.lastAlertAt)} style={{ fontWeight: 400, fontSize: '0.6rem', color: 'var(--ink-light)', marginTop: 2 }}>
+                      {formatRelativeTime(s.lastAlertAt, now)}
+                    </div>
+                  )}
+                </td>
+                <td className="mono" title={s.lastDataAt ? formatSAST(s.lastDataAt) : ''} style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: '0.64rem', color: 'var(--ink-mid)' }}>{s.lastDataAt ? formatRelativeTime(s.lastDataAt, now) : '—'}</td>
                 <td style={{ padding: '7px 12px', borderBottom: '1px solid var(--line)' }}><OmFlagCell site={s} /></td>
               </tr>
             );
@@ -79,4 +96,36 @@ function SiteTable({ sites, onOpen, sort, setSort }) {
   );
 }
 
-Object.assign(window, { SiteTable, Legend });
+/* ---------------- SITES NOT ON AMMP (placeholder) ---------------- */
+/* Config-driven, not wired to any real data source yet — see js/offAmmpConfig.jsx. */
+function OffAmmpPanel() {
+  const list = (typeof OFF_AMMP_SITES !== 'undefined' && Array.isArray(OFF_AMMP_SITES)) ? OFF_AMMP_SITES : [];
+  if (!list.length) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      <SectionHead title="Sites not on AMMP" note={`${list.length} site${list.length === 1 ? '' : 's'}`} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 'var(--gap)' }}>
+        {list.map((site, i) => (
+          <div key={i} className="card" style={{
+            padding: '14px 16px', borderTop: '3px dashed var(--grey-lt)', background: 'var(--grey-xlt)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span className="mono" style={{
+                fontSize: '0.58rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px',
+                color: 'var(--ink-light)', background: '#fff', border: '1px solid var(--grey-lt)', padding: '2px 7px', borderRadius: 20,
+              }}>Not connected</span>
+            </div>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 10 }}>{site.name}</div>
+            {site.url && (
+              <a href={site.url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ display: 'inline-flex' }}>
+                View on external platform ↗
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { SiteTable, Legend, OffAmmpPanel });

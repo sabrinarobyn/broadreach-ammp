@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Broadreach — Access</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Lato:wght@300;400;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --br-xlt:#EEF4F8;--br-lt:#D4DEF0;--br:#5C8098;--br-dk:#3D5C6E;
+  --page:#F5F7F9;--grey-lt:#E5E7EB;--grey:#6B7280;--ink:#1A1A1A;--white:#FFFFFF;
+  --ok-bg:#DDEED5;--ok-fg:#2f5222;--err-bg:#F5D4D4;--err-fg:#9B1B1D;
+  --radius:10px;--radius-lg:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Lato',sans-serif;background:var(--page);color:var(--ink);min-height:100vh;display:flex;flex-direction:column;}
+header{background:var(--br-dk);}
+.header-inner{max-width:1000px;margin:0 auto;padding:16px 32px;display:flex;align-items:center;gap:12px;width:100%;}
+.wordmark-t{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:#fff;}
+.wordmark-s{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--br-lt);text-transform:uppercase;}
+.accent{height:1.5px;background:var(--br-lt);}
+
+.wrap{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px;}
+
+.login-card{background:var(--white);border:0.5px solid var(--grey-lt);border-top:3px solid var(--br);border-radius:var(--radius-lg);padding:34px 34px 30px;max-width:420px;width:100%;box-shadow:0 2px 12px rgba(92,128,152,0.10);}
+.login-title{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:var(--br);margin-bottom:4px;}
+.login-sub{font-family:'DM Mono',monospace;font-size:12px;color:var(--grey);margin-bottom:22px;line-height:1.5;}
+label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--grey);margin-bottom:6px;font-family:'Lato',sans-serif;}
+input{width:100%;padding:11px 12px;border:1px solid var(--grey-lt);border-radius:8px;font-size:14px;font-family:'DM Mono',monospace;background:var(--white);color:var(--ink);outline:none;transition:border-color .15s;}
+input:focus{border-color:var(--br);}
+.btn{width:100%;margin-top:16px;padding:12px;border:none;border-radius:8px;background:var(--br);color:#fff;font-family:'Lato',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.3px;cursor:pointer;transition:background .15s;}
+.btn:hover{background:var(--br-dk);}
+.btn:disabled{background:#B9C7D2;cursor:default;}
+.msg{margin-top:16px;font-family:'DM Mono',monospace;font-size:12px;padding:9px 12px;border-radius:8px;display:none;line-height:1.5;}
+.msg-err{background:var(--err-bg);color:var(--err-fg);display:block;}
+.msg-info{background:var(--br-xlt);color:var(--br-dk);display:block;}
+.hint{margin-top:18px;font-family:'DM Mono',monospace;font-size:11px;color:var(--grey);line-height:1.6;border-top:0.5px solid var(--grey-lt);padding-top:14px;}
+
+footer{max-width:1000px;margin:0 auto;padding:0 32px 24px;font-family:'DM Mono',monospace;font-size:11px;color:var(--grey);width:100%;}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <svg width="32" height="32" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="36" height="36" rx="6.5" fill="#EEF4F8"/>
+      <path d="M5.5 29 L18 8 L30.5 29" stroke="#5C8098" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="9" y1="20" x2="27" y2="20" stroke="#5C8098" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="18" cy="8" r="2.8" fill="#5C8098"/>
+    </svg>
+    <div>
+      <div class="wordmark-t">BROADREACH</div>
+      <div class="wordmark-s">Energy · AMMP Monitoring</div>
+    </div>
+  </div>
+</header>
+<div class="accent"></div>
+
+<div class="wrap" id="loginView">
+  <div class="login-card">
+    <div class="login-title">Access</div>
+    <div class="login-sub">Enter the app password to continue.</div>
+    <form id="accessForm" onsubmit="return submitAccess(event)">
+      <label for="pw">Password</label>
+      <input type="password" id="pw" placeholder="Password" autocomplete="off" autofocus/>
+      <button class="btn" id="accessBtn" type="submit">Continue</button>
+    </form>
+    <div class="msg" id="msg"></div>
+    <div class="hint">This only gates access to the Broadreach app itself. Your AMMP API key/sign-in is separate and unaffected.</div>
+  </div>
+</div>
+
+<footer>Broadreach Energy · Internal Access</footer>
+
+<script>
+function nextUrl(){
+  const params = new URLSearchParams(location.search);
+  return params.get('next') || '/';
+}
+
+async function submitAccess(e){
+  e.preventDefault();
+  const pw = document.getElementById('pw').value;
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('accessBtn');
+  if(!pw){ msg.className='msg msg-err'; msg.textContent='Enter the password.'; return false; }
+  btn.disabled=true; btn.textContent='Checking…';
+  try{
+    const r = await fetch('/api/access/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+    if(!r.ok){
+      const d = await r.json().catch(() => ({}));
+      msg.className='msg msg-err';
+      msg.textContent = '✗ ' + (d.error || `Sign-in failed (${r.status}).`);
+      btn.disabled=false; btn.textContent='Continue';
+      return false;
+    }
+    location.href = nextUrl();
+  }catch(err){
+    msg.className='msg msg-err';
+    msg.textContent='✗ Could not reach the service. Try again in a moment.';
+    btn.disabled=false; btn.textContent='Continue';
+  }
+  return false;
+}
+
+// If already authenticated, skip straight through.
+fetch('/api/access/status').then(r => r.json()).then(d => {
+  if(d && d.authenticated) location.replace(nextUrl());
+}).catch(() => {});
+</script>
+</body>
+</html>

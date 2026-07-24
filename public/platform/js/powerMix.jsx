@@ -58,12 +58,16 @@ function buildAlignedRows(power, batt, env) {
   const bMaps = seriesMaps(batt, BATT_FIELD_MAP);
   const eMaps = seriesMaps(env, ENV_FIELD_MAP);
 
-  const axisKey = Object.keys(POWER_FIELD_MAP).find((k) => pMaps[k].size > 0);
-  let timestamps = [];
-  if (axisKey) timestamps = [...pMaps[axisKey].keys()];
-  else if (bMaps.batt_soc.size) timestamps = [...bMaps.batt_soc.keys()];
-  else if (eMaps.poa_irradiance.size) timestamps = [...eMaps.poa_irradiance.keys()];
-  timestamps.sort();
+  // Union of every timestamp across all fetched series, not just the first
+  // populated one — a fixed priority order here previously truncated the axis
+  // to whichever field happened to be checked first (e.g. daylight-only PV
+  // power), silently dropping real nighttime data for 24/7 series like grid,
+  // load or battery.
+  const tsSet = new Set();
+  Object.values(pMaps).forEach((m) => m.forEach((_, ts) => tsSet.add(ts)));
+  bMaps.batt_soc.forEach((_, ts) => tsSet.add(ts));
+  eMaps.poa_irradiance.forEach((_, ts) => tsSet.add(ts));
+  const timestamps = [...tsSet].sort();
 
   return timestamps.map((ts) => {
     const raw = {
@@ -83,6 +87,25 @@ function buildAlignedRows(power, batt, env) {
     const charge = raw.batt_charge_power;
     return { ...raw, gridImport: flows.imp, gridExport: flows.exp, battChargeNorm: charge == null ? null : (charge > 0 ? -charge : charge) };
   });
+}
+
+const POWER_MIX_SERIES_LABELS = {
+  pv_power: 'PV Power',
+  load_power: 'Consumption',
+  gridImport: 'Grid Import',
+  gridExport: 'Grid Export',
+  battChargeNorm: 'Battery Charge',
+  batt_discharge_power: 'Battery Discharge',
+  genset_power: 'Genset',
+  batt_soc: 'Battery SOC',
+};
+
+// Which plotted series are legitimately all-null across the whole range (e.g.
+// a site with no genset) — surfaced as a note rather than a silently blank
+// chart line.
+function computeEmptySeries(rows) {
+  if (!rows.length) return [];
+  return Object.keys(POWER_MIX_SERIES_LABELS).filter((k) => rows.every((r) => r[k] == null));
 }
 
 async function fetchPowerMixRows(token, siteId, dateFrom, dateTo, interval) {
@@ -116,7 +139,9 @@ function usePowerMix(site, from, to) {
           interval = '1h';
         }
         if (cancelled) return;
-        setState(rows.length ? { status: 'ready', rows, interval } : { status: 'empty', rows: [], interval });
+        setState(rows.length
+          ? { status: 'ready', rows, interval, emptySeries: computeEmptySeries(rows) }
+          : { status: 'empty', rows: [], interval });
       } catch (e) {
         if (!cancelled) setState({ status: 'error', error: e.message, rows: [], interval: '15m' });
       }
@@ -169,7 +194,7 @@ function PowerMixChart({ rows, height = 380 }) {
 }
 
 function PowerMixSection({ site, from, to, setFrom, setTo, powerMix }) {
-  const { status, rows, error, interval } = powerMix;
+  const { status, rows, error, interval, emptySeries } = powerMix;
   return (
     <div className="card" style={{ padding: 16, marginBottom: 'var(--gap)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
@@ -186,7 +211,16 @@ function PowerMixSection({ site, from, to, setFrom, setTo, powerMix }) {
       {status === 'loading' && <Loading label="Loading power mix…" />}
       {status === 'error' && <ErrorNote message={error} />}
       {status === 'empty' && <EmptyState title="No power data for this range." />}
-      {status === 'ready' && <PowerMixChart rows={rows} />}
+      {status === 'ready' && (
+        <>
+          <PowerMixChart rows={rows} />
+          {emptySeries && emptySeries.length > 0 && (
+            <div className="mono" style={{ fontSize: '0.62rem', color: 'var(--ink-light)', marginTop: 8 }}>
+              No data for this range: {emptySeries.map((k) => POWER_MIX_SERIES_LABELS[k]).join(', ')}.
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

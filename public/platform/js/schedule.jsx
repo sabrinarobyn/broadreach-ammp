@@ -48,6 +48,11 @@ function downloadText(filename, text) {
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+function downloadDataUrl(filename, dataUrl) {
+  const a = document.createElement('a');
+  a.href = dataUrl; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
 
 function OmModal({ initial, assets, onSave, onClose }) {
   const [form, setForm] = _omUseState(() => ({

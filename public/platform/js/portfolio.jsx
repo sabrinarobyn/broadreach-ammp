@@ -92,6 +92,8 @@ function PortfolioView({ onOpen }) {
           ? <EmptyState title="No sites match your filters." />
           : <SiteTable sites={filtered} onOpen={onOpen} sort={sort} setSort={setSort} />}
       </div>
+
+      <OffAmmpPanel />
     </div>
   );
 }

@@ -118,27 +118,23 @@ function SiteView({ siteId, onBack }) {
     <div>
       <SiteHeader site={site} onBack={onBack} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--gap)', marginBottom: 'var(--gap)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) 1.3fr', gap: 'var(--gap)', marginBottom: 'var(--gap)', alignItems: 'start' }}>
         <KpiCard label="Today's production" loading={kpis.status === 'loading'} value={kpis.todayKwh != null ? Math.round(kpis.todayKwh).toLocaleString() : null} unit="kWh" accent="var(--amb)" />
         <KpiCard label="Performance ratio" loading={kpis.status === 'loading'} value={kpis.pr != null ? kpis.pr.toFixed(2) : null} sub="PR" accent="var(--br)" />
         <KpiCard label="Availability" loading={kpis.status === 'loading'} value={kpis.availability != null ? kpis.availability.toFixed(1) : null} unit="%" accent={kpis.availability != null && kpis.availability < 90 ? 'var(--rd)' : 'var(--grn)'} />
-        <MaxPvKwpCard pvRatioPct={site.pvRatioPct} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
+          <MaxPvKwpCard pvRatioPct={site.pvRatioPct} />
+          <AlertsPanel site={site} />
+          <SiteOM site={site} />
+        </div>
       </div>
 
       <PowerMixSection site={site} from={from} to={to} setFrom={setFrom} setTo={setTo} powerMix={powerMix} />
       <DailyPrSection site={site} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 'var(--gap)', alignItems: 'start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)' }}>
-            <RevenuePanel site={site} />
-            <EnviroPanel site={site} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-          <AlertsPanel site={site} />
-          <SiteOM site={site} />
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)' }}>
+        <RevenuePanel site={site} />
+        <EnviroPanel site={site} />
       </div>
     </div>
   );
