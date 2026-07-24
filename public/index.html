@@ -61,42 +61,46 @@ footer{max-width:1000px;margin:0 auto;padding:0 32px 24px;font-family:'DM Mono',
 <div class="wrap" id="loginView">
   <div class="login-card">
     <div class="login-title">Sign in</div>
-    <div class="login-sub">Enter your AMMP API key to open the Platform.</div>
+    <div class="login-sub">Enter the app password to continue.</div>
     <form id="loginForm" onsubmit="return login(event)">
-      <label for="apiKey">API key</label>
-      <input type="password" id="apiKey" placeholder="x-api-key" autocomplete="off" autofocus/>
+      <label for="pw">Password</label>
+      <input type="password" id="pw" placeholder="Password" autocomplete="off" autofocus/>
       <button class="btn" id="loginBtn" type="submit">Sign in</button>
     </form>
     <div class="msg" id="msg"></div>
-    <div class="hint">Your key is verified against AMMP and kept in this browser tab only — it's never stored on the server. Closing the tab signs you out.</div>
+    <div class="hint">This gates access to the Broadreach app itself. Once inside, you'll sign in separately with your own AMMP API key to load live data.</div>
   </div>
 </div>
 
 <footer>Broadreach Energy · AMMP Data API v1</footer>
 
 <script>
-const KEY_STORE = 'ammpKey';
+function nextUrl(){
+  const params = new URLSearchParams(location.search);
+  return params.get('next') || 'platform/index.html';
+}
 
 async function login(e){
   e.preventDefault();
-  const key = document.getElementById('apiKey').value.trim();
+  const pw = document.getElementById('pw').value;
   const msg = document.getElementById('msg');
   const btn = document.getElementById('loginBtn');
-  if(!key){ msg.className='msg msg-err'; msg.textContent='Enter your API key.'; return false; }
-  btn.disabled=true; btn.textContent='Verifying…';
-  msg.className='msg msg-info'; msg.textContent='Checking your key with AMMP…';
+  if(!pw){ msg.className='msg msg-err'; msg.textContent='Enter the password.'; return false; }
+  btn.disabled=true; btn.textContent='Checking…';
   try{
-    const r = await fetch('/auth/token',{method:'POST',headers:{'x-api-key':key}});
-    const d = await r.json().catch(()=>({}));
-    if(!r.ok || !d.access_token){
+    const r = await fetch('/api/access/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw })
+    });
+    if(!r.ok){
+      const d = await r.json().catch(() => ({}));
       msg.className='msg msg-err';
-      msg.textContent = r.status===401||r.status===403 ? '✗ That key was rejected by AMMP.' : `✗ Sign-in failed (${r.status}).`;
+      msg.textContent = '✗ ' + (d.error || `Sign-in failed (${r.status}).`);
       btn.disabled=false; btn.textContent='Sign in';
       return false;
     }
-    // valid — remember the key for this tab and continue straight into the Platform
-    sessionStorage.setItem(KEY_STORE, key);
-    location.href='platform/index.html';
+    location.href = nextUrl();
   }catch(err){
     msg.className='msg msg-err';
     msg.textContent='✗ Could not reach the service. Try again in a moment.';
@@ -105,8 +109,10 @@ async function login(e){
   return false;
 }
 
-// If already signed in this tab, skip straight to the Platform.
-if(sessionStorage.getItem(KEY_STORE)){ location.replace('platform/index.html'); }
+// If already signed in this session, skip straight through.
+fetch('/api/access/status').then(r => r.json()).then(d => {
+  if(d && d.authenticated) location.replace(nextUrl());
+}).catch(() => {});
 </script>
 </body>
 </html>

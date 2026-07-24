@@ -67,7 +67,7 @@ function passwordMatches(supplied) {
 
 function isPublicAccessPath(p) {
   return p === '/api/access/login' || p === '/api/access/logout' || p === '/api/access/status'
-    || p === '/access' || p.startsWith('/access/') || p === '/health';
+    || p === '/' || p === '/index.html' || p === '/health';
 }
 
 // Gates everything registered after it: static files, /auth/token, /proxy/*,
@@ -82,7 +82,7 @@ function requireAppAccess(req, res, next) {
   if (isApiish || req.method !== 'GET') {
     return res.status(401).json({ error: 'Not authenticated', code: 'APP_ACCESS_REQUIRED' });
   }
-  return res.redirect('/access/?next=' + encodeURIComponent(req.originalUrl));
+  return res.redirect('/?next=' + encodeURIComponent(req.originalUrl));
 }
 
 // O&M schedule store. Optional — if DATABASE_URL isn't set (e.g. local dev without

@@ -34,7 +34,7 @@ function qs(params) {
 // code. Distinct from AMMP itself rejecting a key/token (r.status===401 with
 // no such code) — only redirect for the app-gate case, not an AMMP auth error.
 function redirectToAppAccessGate() {
-  location.href = '/access/?next=' + encodeURIComponent(location.pathname);
+  location.href = '/?next=' + encodeURIComponent(location.pathname);
 }
 
 async function apiGet(token, path) {
