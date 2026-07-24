@@ -179,16 +179,27 @@ function isAssetSeriesValue(v) { return !!(v && Array.isArray(v.data)); }
 function extractDeviceSeries(resp) {
   if (!resp || typeof resp !== 'object') return [];
   return Object.keys(resp).filter((k) => isDeviceSeriesValue(resp[k])).map((k) => ({
-    key: k, label: humanizeKey(k), points: resp[k].datasets[0].data,
+    key: k, label: humanizeKey(k), points: resp[k].datasets[0].data, unit: resp[k].unit || null,
   }));
 }
 
+/* Most endpoints put each series directly at the top level (resp[key] = {data:[...]}),
+   but some (confirmed: technical-kpis/pv-performance) nest everything one level deeper
+   under a "data" wrapper alongside asset metadata (resp.data[key] = {data:[...]}) —
+   check both shapes rather than assuming one. */
 function extractAssetSeries(resp) {
   if (!resp || typeof resp !== 'object') return [];
   if (Array.isArray(resp.data)) return [{ key: 'value', label: 'Value', points: resp.data, unit: resp.unit || null }];
-  return Object.keys(resp).filter((k) => isAssetSeriesValue(resp[k])).map((k) => ({
+  const direct = Object.keys(resp).filter((k) => isAssetSeriesValue(resp[k])).map((k) => ({
     key: k, label: humanizeKey(k), points: resp[k].data, unit: resp[k].unit || null,
   }));
+  if (resp.data && typeof resp.data === 'object' && !Array.isArray(resp.data)) {
+    const nested = Object.keys(resp.data).filter((k) => isAssetSeriesValue(resp.data[k])).map((k) => ({
+      key: k, label: humanizeKey(k), points: resp.data[k].data, unit: resp.data[k].unit || null,
+    }));
+    return [...direct, ...nested];
+  }
+  return direct;
 }
 
 /* Confirmed via a live 422: daily/monthly-interval endpoints (historic-energy,
@@ -382,6 +393,25 @@ function formatSAST(dateInput) {
   const s = new Date(d.getTime() + 2 * 3600 * 1000);
   const pad2 = (n) => (n < 10 ? '0' : '') + n;
   return `${pad2(s.getUTCDate())} ${SAST_MONTHS[s.getUTCMonth()]} ${s.getUTCFullYear()} ${pad2(s.getUTCHours())}:${pad2(s.getUTCMinutes())}`;
+}
+function formatSASTDateOnly(dateInput) {
+  if (!dateInput) return null;
+  const d = parseAmmpDate(dateInput);
+  if (isNaN(d.getTime())) return null;
+  const s = new Date(d.getTime() + 2 * 3600 * 1000);
+  const pad2 = (n) => (n < 10 ? '0' : '') + n;
+  return `${pad2(s.getUTCDate())} ${SAST_MONTHS[s.getUTCMonth()]} ${s.getUTCFullYear()}`;
+}
+/* SAST calendar-day key, for "is this alert from today" checks — same +2h
+   convention as isSastDaylight/formatSAST rather than the machine's local zone. */
+function sastDateKey(ms) {
+  if (!isFinite(ms)) return null;
+  const d = new Date(ms + 2 * 3600 * 1000);
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+}
+function isSameSastDay(msA, msB) {
+  const a = sastDateKey(msA), b = sastDateKey(msB);
+  return a != null && a === b;
 }
 
 /* Relative "N minutes/hours/days ago" display for a timestamp, recomputed
@@ -588,40 +618,73 @@ function AmmpProvider({ children }) {
   return <AmmpContext.Provider value={value}>{children}</AmmpContext.Provider>;
 }
 
+/* Builds Map(timestamp -> averaged value) from whichever device-series keys match
+   primaryTest (falling back to fallbackTest if none match) — used for AC current/
+   voltage, which report one value per phase (L1/L2/L3) rather than one scalar, so
+   a single Current/Voltage toggle shows the average across whichever phases exist. */
+function extractPhaseAveraged(data, primaryTest, fallbackTest) {
+  let seriesList = extractDeviceSeries(data).filter((s) => primaryTest.test(s.key));
+  if (!seriesList.length && fallbackTest) seriesList = extractDeviceSeries(data).filter((s) => fallbackTest.test(s.key));
+  const maps = seriesList.map((s) => {
+    const m = new Map();
+    s.points.forEach((p) => { if (p.value != null) m.set(p.date, p.value); });
+    return m;
+  });
+  const tsSet = new Set();
+  maps.forEach((m) => m.forEach((_, ts) => tsSet.add(ts)));
+  const out = new Map();
+  tsSet.forEach((ts) => {
+    const vals = maps.map((m) => m.get(ts)).filter((v) => v != null);
+    if (vals.length) out.set(ts, vals.reduce((a, b) => a + b, 0) / vals.length);
+  });
+  return { map: out, hasData: out.size > 0 };
+}
+
 /* Maps a (possibly chunk-merged) pv-inverter historic-data response into a chart-ready
-   series. Power + temperature come from confirmed exact keys; per-string channels
-   vary by device so are picked up generically (any device-series key containing
-   "string"), aligned to the power series by timestamp. */
+   series. Power + temperature come from confirmed exact keys. AC current/voltage come
+   from real per-phase channels (pv_inverter_ac_I_L1/2/3, _ac_V_L1/2/3 — confirmed via a
+   live account), averaged across phases. Per-string/per-MPPT DC current channels vary
+   by hardware — some devices name them "..._string_N", others "..._mppt_N" (confirmed:
+   both exist on this account) — so they're matched by the shared "dc_I_input" shape
+   rather than either literal word, and are kept separate from the main metrics so they
+   can be shown as their own toggleable chart rather than assumed to be Watts. */
 function toInverterSeries(data, days) {
   const powerSeries = (data && data.pv_inverter_ac_P_total && data.pv_inverter_ac_P_total.datasets && data.pv_inverter_ac_P_total.datasets[0] && data.pv_inverter_ac_P_total.datasets[0].data) || [];
   const tempSeries = (data && data.pv_inverter_temp && data.pv_inverter_temp.datasets && data.pv_inverter_temp.datasets[0] && data.pv_inverter_temp.datasets[0].data) || [];
   const tMap = {};
   tempSeries.forEach((d) => { if (d.value != null) tMap[d.date] = d.value; });
 
-  const stringSeriesList = extractDeviceSeries(data).filter((s) => /string/i.test(s.key));
+  const currentInfo = extractPhaseAveraged(data, /ac_i_l\d/i, /(^|_)current(_|$)/i);
+  const voltageInfo = extractPhaseAveraged(data, /ac_v_l\d/i, /(^|_)voltage(_|$)/i);
+
+  const stringSeriesList = extractDeviceSeries(data).filter((s) => /dc_i_input/i.test(s.key));
   const stringMaps = stringSeriesList.map((s) => {
     const m = new Map();
-    s.points.forEach((p) => { if (p.value != null) m.set(p.date, p.value / 1000); });
+    s.points.forEach((p) => { if (p.value != null) m.set(p.date, scaleByDeclaredUnit(p.value, s.unit)); });
     return m;
   });
 
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const pad2 = (n) => (n < 10 ? '0' : '') + n;
 
-  let pkPower = 0, pkTemp = -Infinity, loTemp = Infinity, energyKwh = 0, prevMs = null;
+  let pkPower = 0, pkTemp = -Infinity, loTemp = Infinity, pkCurrent = 0, pkVoltage = 0, energyKwh = 0, prevMs = null;
   const pts = powerSeries.filter((d) => d.value != null).map((d) => {
     const dt = new Date(d.date);
     const power = +(d.value / 1000).toFixed(2);
     const hasTemp = tMap[d.date] != null;
     const temp = hasTemp ? +tMap[d.date].toFixed(1) : null;
+    const current = currentInfo.map.has(d.date) ? +currentInfo.map.get(d.date).toFixed(2) : null;
+    const voltage = voltageInfo.map.has(d.date) ? +voltageInfo.map.get(d.date).toFixed(1) : null;
     pkPower = Math.max(pkPower, power);
     if (hasTemp) { pkTemp = Math.max(pkTemp, temp); loTemp = Math.min(loTemp, temp); }
+    if (current != null) pkCurrent = Math.max(pkCurrent, current);
+    if (voltage != null) pkVoltage = Math.max(pkVoltage, voltage);
     const ms = dt.getTime();
     if (prevMs != null) energyKwh += power * ((ms - prevMs) / 3600000);
     prevMs = ms;
     const strings = stringMaps.length ? stringMaps.map((m) => (m.has(d.date) ? +m.get(d.date).toFixed(2) : null)) : null;
     return {
-      m: ms, power, temp, hasTemp, current: null, voltage: null, strings,
+      m: ms, power, temp, hasTemp, current, voltage, strings,
       label: `${dt.getDate()} ${MON[dt.getMonth()]}, ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`,
       short: days <= 1 ? `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}` : `${dt.getDate()} ${MON[dt.getMonth()]}`,
     };
@@ -632,6 +695,10 @@ function toInverterSeries(data, days) {
     peakPower: +pkPower.toFixed(1),
     peakTemp: pkTemp === -Infinity ? null : +pkTemp.toFixed(1),
     minTemp: loTemp === Infinity ? null : +loTemp.toFixed(1),
+    peakCurrent: currentInfo.hasData ? +pkCurrent.toFixed(1) : null,
+    peakVoltage: voltageInfo.hasData ? +pkVoltage.toFixed(1) : null,
+    hasCurrent: currentInfo.hasData,
+    hasVoltage: voltageInfo.hasData,
     energyKwh: Math.round(energyKwh),
     nStrings: stringSeriesList.length, degradedString: -1,
     real: true,
@@ -650,5 +717,6 @@ Object.assign(window, {
   extractDeviceSeries, extractAssetSeries, humanizeKey, findField, extractScalar, scaleByDeclaredUnit, utcDateOnly,
   extractCapacityKw, extractLocation, extractProvince, extractCoords,
   derivePowerKw, deriveHasAlerts, deriveActiveAlerts, deriveStale, deriveStatus, toSite, toInverterSeries,
-  isSastDaylight, formatSAST, formatRelativeTime, parseAmmpDate,
+  isSastDaylight, formatSAST, formatSASTDateOnly, formatRelativeTime, parseAmmpDate,
+  sastDateKey, isSameSastDay,
 });

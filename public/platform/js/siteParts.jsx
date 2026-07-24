@@ -14,7 +14,10 @@ function Loading({ label }) {
 }
 
 /* ---------------- Alerts ---------------- */
-function useStatusInfo(site) {
+/* Lifted out of AlertsPanel so SiteView can also use "any alert today?" to
+   decide whether the page's status badge should be overridden to 'alert' —
+   a single fetch shared by both, rather than each doing its own. */
+function useStatusInfoToday(site) {
   const ammp = useAmmp();
   const [state, setState] = _spUseState({ status: 'loading' });
   React.useEffect(() => {
@@ -22,21 +25,24 @@ function useStatusInfo(site) {
     setState({ status: 'loading' });
     fetchStatusInfoLatest(ammp.token, site.id).then((resp) => {
       if (cancelled) return;
-      setState({ status: 'ready', items: deriveActiveAlerts(resp) });
+      const all = deriveActiveAlerts(resp);
+      const now = Date.now();
+      const today = all.filter((a) => isSameSastDay(a._t, now));
+      setState({ status: 'ready', items: today, hasAlertsToday: today.length > 0 });
     }).catch((e) => { if (!cancelled) setState({ status: 'error', error: e.message }); });
     return () => { cancelled = true; };
   }, [site.id, ammp.token]);
   return state;
 }
 
-function AlertsPanel({ site }) {
-  const { status, items, error } = useStatusInfo(site);
+function AlertsPanel({ statusInfo }) {
+  const { status, items, error } = statusInfo;
   return (
     <div className="card" style={{ padding: 16 }}>
-      <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 12px' }}>System Alerts</h3>
+      <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 12px' }}>System Alerts <span className="mono" style={{ fontWeight: 400, fontSize: '0.6rem', color: 'var(--ink-light)' }}>· today</span></h3>
       {status === 'loading' && <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--ink-light)', padding: '12px 0', textAlign: 'center' }}>Loading…</div>}
       {status === 'error' && <ErrorNote message={error} />}
-      {status === 'ready' && (!items || !items.length) && <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--ink-light)', padding: '12px 0', textAlign: 'center' }}>No active alerts.</div>}
+      {status === 'ready' && (!items || !items.length) && <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--ink-light)', padding: '12px 0', textAlign: 'center' }}>No active alerts today.</div>}
       {status === 'ready' && items && items.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {items.map((a, i) => {

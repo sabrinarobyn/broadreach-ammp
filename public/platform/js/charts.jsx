@@ -66,8 +66,8 @@ const INV_METRICS = {
 };
 const INV_METRIC_ORDER = ['power', 'current', 'voltage', 'temp'];
 
-/* ---- Configurable per-inverter chart: pick metrics + optional string monitoring ---- */
-function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics = ['power', 'temp'], showStrings = false }) {
+/* ---- Configurable per-inverter chart: pick which metrics to plot ---- */
+function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics = ['power', 'temp'] }) {
   const [ref, w] = useWidth();
   const [hover, setHover] = _useState(null);
   const pts = series.pts;
@@ -83,10 +83,6 @@ function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics =
   const x = (i) => padL + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
   const frac = (ci, v) => { const [a, b] = doms[ci]; return b === a ? 0 : (v - a) / (b - a); };
   const y = (ci, v) => padT + ih - frac(ci, v) * ih;
-
-  // string axis always mapped in kW against peak power
-  const strMax = Math.max(1, INV_METRICS.power.dom(series)[1]);
-  const yStr = (v) => padT + ih - (v / strMax) * ih;
 
   const ticks = 5;
   const labelStep = Math.max(1, Math.ceil(pts.length / 9));
@@ -123,13 +119,6 @@ function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics =
           <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fill="#9AA4AE">{p.short}</text>
         ) : null)}
 
-        {/* string monitoring: faint per-string power lines */}
-        {showStrings && pts[0].strings && pts[0].strings.map((_, s) => {
-          const isBad = s === series.degradedString;
-          const path = smoothPath(pts.map((p, i) => ({ x: x(i), y: yStr(p.strings[s]) })));
-          return <path key={`str${s}`} d={path} fill="none" stroke={isBad ? 'var(--rd)' : invColor} strokeWidth={isBad ? 1.6 : 1} opacity={isBad ? 0.9 : 0.32} strokeDasharray={isBad ? '4 3' : '0'} strokeLinecap="round" />;
-        })}
-
         {/* selected metric lines */}
         {cfgs.map((c, ci) => (
           <path key={c.key} d={smoothPath(pts.map((p, i) => ({ x: x(i), y: y(ci, c.get(p)) })))}
@@ -164,15 +153,78 @@ function InverterChart({ series, invColor = 'var(--br)', height = 280, metrics =
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{c.get(pts[hover])} {c.unit}</span>
             </div>
           ))}
-          {showStrings && pts[0].strings && (() => {
-            const vals = pts[hover].strings.filter((v) => v != null);
-            return vals.length ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 4, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.16)' }}>
-                <span style={{ opacity: 0.8 }}>Strings ({series.nStrings})</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{Math.min(...vals).toFixed(1)}–{Math.max(...vals).toFixed(1)} kW</span>
-              </div>
-            ) : null;
-          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- Per-string/per-MPPT current chart: shown next to the main inverter chart,
+   toggled independently since it's a lot of extra lines and not always wanted. ---- */
+function StringChart({ series, height = 260 }) {
+  const [ref, w] = useWidth();
+  const [hover, setHover] = _useState(null);
+  const pts = series.pts;
+  const padL = 40, padR = 16, padT = 14, padB = 28;
+  const W = Math.max(280, w), H = height;
+  const iw = W - padL - padR, ih = H - padT - padB;
+
+  if (!series.nStrings || !pts.length) {
+    return <div className="mono" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-light)', fontSize: '0.7rem' }}>No per-string data for this range.</div>;
+  }
+
+  const allVals = pts.flatMap((p) => (p.strings || []).filter((v) => v != null));
+  const maxV = Math.max(1, ...allVals) * 1.08;
+
+  const x = (i) => padL + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const y = (v) => padT + ih - (v / maxV) * ih;
+  const ticks = 4;
+  const labelStep = Math.max(1, Math.ceil(pts.length / 7));
+
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width * W;
+    let best = 0, bd = 1e9;
+    pts.forEach((p, i) => { const d = Math.abs(x(i) - px); if (d < bd) { bd = d; best = i; } });
+    setHover(best);
+  };
+
+  return (
+    <div ref={ref} style={{ width: '100%', position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display: 'block', overflow: 'visible' }}
+           onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        {Array.from({ length: ticks + 1 }, (_, i) => {
+          const yy = padT + ih - (i / ticks) * ih;
+          return (
+            <g key={i}>
+              <line x1={padL} x2={W - padR} y1={yy} y2={yy} stroke="#EAEEF1" strokeWidth="1" strokeDasharray={i === 0 ? '0' : '3 4'} />
+              <text x={padL - 8} y={yy + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-mono)" fill="#9AA4AE">{(maxV * (i / ticks)).toFixed(1)}</text>
+            </g>
+          );
+        })}
+        {pts.map((p, i) => i % labelStep === 0 || i === pts.length - 1 ? (
+          <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="9.5" fontFamily="var(--font-mono)" fill="#9AA4AE">{p.short}</text>
+        ) : null)}
+        {Array.from({ length: series.nStrings }, (_, s) => {
+          const isBad = s === series.degradedString;
+          const path = smoothPath(pts.map((p, i) => ({ x: x(i), y: y((p.strings && p.strings[s]) ?? 0) })));
+          return <path key={s} d={path} fill="none" stroke={isBad ? 'var(--rd)' : `hsl(${(s * 47) % 360},55%,48%)`} strokeWidth={isBad ? 1.8 : 1.3} opacity={isBad ? 0.95 : 0.7} strokeDasharray={isBad ? '4 3' : '0'} strokeLinecap="round" />;
+        })}
+        {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + ih} stroke="#B9C3CB" strokeWidth="1" strokeDasharray="3 3" />}
+      </svg>
+      <div className="mono" style={{ position: 'absolute', left: padL, bottom: -2, fontSize: 9, color: '#9AA4AE' }}>A</div>
+      {hover !== null && pts[hover].strings && (
+        <div style={{
+          position: 'absolute', top: 6, left: `clamp(8px, ${(x(hover) / W) * 100}%, calc(100% - 150px))`,
+          background: 'var(--br-dker)', color: '#fff', borderRadius: 8, padding: '8px 10px',
+          fontSize: 10.5, pointerEvents: 'none', boxShadow: 'var(--shadow-md)', minWidth: 130, maxHeight: 180, overflow: 'auto', zIndex: 3,
+        }}>
+          <div style={{ fontFamily: 'var(--font-mono)', opacity: 0.7, marginBottom: 4, fontSize: 10 }}>{pts[hover].label}</div>
+          {pts[hover].strings.map((v, s) => v == null ? null : (
+            <div key={s} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+              <span>String {s + 1}</span><span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{v.toFixed(2)} A</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -221,4 +273,4 @@ function ScatterChart({ series, height = 360 }) {
   );
 }
 
-Object.assign(window, { Spark, MiniBars, useWidth, InverterChart, INV_METRICS, INV_METRIC_ORDER, ScatterChart });
+Object.assign(window, { Spark, MiniBars, useWidth, InverterChart, StringChart, INV_METRICS, INV_METRIC_ORDER, ScatterChart });

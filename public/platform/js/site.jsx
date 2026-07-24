@@ -45,6 +45,19 @@ function MaxPvKwpCard({ pvRatioPct }) {
   );
 }
 
+/* Latest non-null value for a key, scanning from the end — PR is a daily
+   metric that settles a day late, so the most-recent day in the window is
+   often still null; walk backwards to the last day that actually has a value. */
+function latestNonNullValue(series, keyPattern) {
+  const pick = series.find((s) => keyPattern.test(s.key));
+  if (!pick) return null;
+  for (let i = pick.points.length - 1; i >= 0; i--) {
+    const v = pick.points[i].value;
+    if (v != null) return Number(v);
+  }
+  return null;
+}
+
 function useSiteKpis(site) {
   const ammp = useAmmp();
   const [state, setState] = _useState({ status: 'loading', todayKwh: null, pr: null, availability: null });
@@ -53,10 +66,14 @@ function useSiteKpis(site) {
     setState((s) => ({ ...s, status: 'loading' }));
     (async () => {
       const today = utcDateOnly(new Date());
-      const [energyResp, prResp, lossResp] = await Promise.all([
+      // PR settles a day late (see latestNonNullValue), so look back a few days
+      // rather than asking only for "today", which is almost always still null.
+      const prFrom = utcDateOnly(Date.now() - 3 * 86400000);
+      const [energyResp, lossResp, kpiPrResp, perfPrResp] = await Promise.all([
         fetchHistoricEnergy(ammp.token, site.id, { dateFrom: today, dateTo: today, interval: '1d' }).catch(() => null),
-        fetchPvPerformanceKpis(ammp.token, site.id, { dateFrom: today, dateTo: today, interval: '1d' }).catch(() => null),
         fetchPvYieldLosses(ammp.token, site.id, { dateFrom: today, dateTo: today, interval: '1d' }).catch(() => null),
+        fetchHistoricKpiData(ammp.token, site.id, { dateFrom: prFrom, dateTo: today, interval: '1d' }).catch(() => null),
+        fetchPvPerformanceKpis(ammp.token, site.id, { dateFrom: prFrom, dateTo: today, interval: '1d' }).catch(() => null),
       ]);
       if (cancelled) return;
       const energySeries = extractAssetSeries(energyResp);
@@ -65,9 +82,15 @@ function useSiteKpis(site) {
         ? scaleByDeclaredUnit(energyPick.points.reduce((a, p) => a + (Number(p.value) || 0), 0), energyPick.unit)
         : null;
 
-      const prSeries = extractAssetSeries(prResp);
-      const prPick = prSeries.find((s) => /(^|_)pr(_|$)/i.test(s.key));
-      const pr = prPick && prPick.points.length ? Number(prPick.points[prPick.points.length - 1].value) : null;
+      // Prefer historic-kpi-data's performance_ratio, then its weather-corrected
+      // variant, then technical-kpis/pv-performance's performance_ratio. Both
+      // report a 0-1 fraction, converted to a percentage for display.
+      const kpiSeries = extractAssetSeries(kpiPrResp);
+      const perfSeries = extractAssetSeries(perfPrResp);
+      const prFraction = latestNonNullValue(kpiSeries, /^performance_ratio$/i)
+        ?? latestNonNullValue(kpiSeries, /^performance_ratio_weather_corrected$/i)
+        ?? latestNonNullValue(perfSeries, /^performance_ratio$/i);
+      const pr = prFraction != null ? prFraction * 100 : null;
 
       const lossSeries = extractAssetSeries(lossResp);
       const availPick = lossSeries.find((s) => /availab|uptime/i.test(s.key));
@@ -108,33 +131,41 @@ function SiteView({ siteId, onBack }) {
   const ammp = useAmmp();
   const site = React.useMemo(() => ammp.sites.find((s) => s.id === siteId), [ammp.sites, siteId]);
   const kpis = useSiteKpis(site);
+  const statusInfo = useStatusInfoToday(site);
   const [from, setFrom] = _useState(() => pmIsoDate(new Date(Date.now() - 6 * 86400000)));
   const [to, setTo] = _useState(() => pmIsoDate(new Date()));
   const powerMix = usePowerMix(site, from, to);
 
   if (!site) return <EmptyState title="Site not found." />;
 
+  // Only today's alerts drive an 'alert' override here — once there's no alert
+  // today, fall through to the same production-based status Portfolio uses
+  // (not a hardcoded 'producing'), so a genuinely offline site still reads as
+  // offline rather than being misrepresented.
+  const displayStatus = statusInfo.status === 'ready' && !statusInfo.hasAlertsToday
+    ? deriveStatus({ powerKw: site.powerKw, pvRatioPct: site.pvRatioPct, hasAlerts: false, stale: site.stale, daylight: isSastDaylight() })
+    : site.status;
+  const headerSite = displayStatus === site.status ? site : { ...site, status: displayStatus };
+
   return (
     <div>
-      <SiteHeader site={site} onBack={onBack} />
+      <SiteHeader site={headerSite} onBack={onBack} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) 1.3fr', gap: 'var(--gap)', marginBottom: 'var(--gap)', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--gap)', marginBottom: 'var(--gap)', alignItems: 'start' }}>
         <KpiCard label="Today's production" loading={kpis.status === 'loading'} value={kpis.todayKwh != null ? Math.round(kpis.todayKwh).toLocaleString() : null} unit="kWh" accent="var(--amb)" />
-        <KpiCard label="Performance ratio" loading={kpis.status === 'loading'} value={kpis.pr != null ? kpis.pr.toFixed(2) : null} sub="PR" accent="var(--br)" />
+        <KpiCard label="Performance ratio" loading={kpis.status === 'loading'} value={kpis.pr != null ? kpis.pr.toFixed(1) : null} unit="%" sub="PR" accent="var(--br)" />
         <KpiCard label="Availability" loading={kpis.status === 'loading'} value={kpis.availability != null ? kpis.availability.toFixed(1) : null} unit="%" accent={kpis.availability != null && kpis.availability < 90 ? 'var(--rd)' : 'var(--grn)'} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--gap)' }}>
-          <MaxPvKwpCard pvRatioPct={site.pvRatioPct} />
-          <AlertsPanel site={site} />
-          <SiteOM site={site} />
-        </div>
+        <MaxPvKwpCard pvRatioPct={site.pvRatioPct} />
+        <AlertsPanel statusInfo={statusInfo} />
       </div>
 
       <PowerMixSection site={site} from={from} to={to} setFrom={setFrom} setTo={setTo} powerMix={powerMix} />
       <DailyPrSection site={site} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--gap)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--gap)' }}>
         <RevenuePanel site={site} />
         <EnviroPanel site={site} />
+        <SiteOM site={site} />
       </div>
     </div>
   );

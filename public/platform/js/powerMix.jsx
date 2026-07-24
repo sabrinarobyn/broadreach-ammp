@@ -11,7 +11,11 @@ function pmIsoDate(d) { return d.toISOString().slice(0, 10); }
 /* Internal canonical name -> real AMMP field name. Confirmed against a live account:
    power fields are declared in Watts ("unit":"W" on each field) and grid import/export
    already come pre-split (power_from_grid / power_to_grid) rather than a single net
-   field — kept as fallback keys in case another account's asset returns those instead. */
+   field — kept as fallback keys in case another account's asset returns those instead.
+   Some accounts (confirmed: Newinbosch, Cape Town Biogas) report a separate
+   "external_power" field instead of/alongside grid_power — its exact semantics
+   aren't confirmed (it isn't necessarily the same as grid import/export), so it's
+   surfaced as its own honestly-labeled series rather than folded into grid flows. */
 const POWER_FIELD_MAP = {
   pv_power: 'pv_power',
   load_power: 'consumption_power',
@@ -21,6 +25,7 @@ const POWER_FIELD_MAP = {
   grid_power: 'grid_power',
   import_power: 'power_from_grid',
   export_power: 'power_to_grid',
+  external_power: 'external_power',
 };
 const BATT_FIELD_MAP = { batt_soc: 'soc' };
 const ENV_FIELD_MAP = { poa_irradiance: 'irradiance' };
@@ -80,6 +85,7 @@ function buildAlignedRows(power, batt, env) {
       grid_power: pMaps.grid_power.get(ts) ?? null,
       import_power: pMaps.import_power.get(ts) ?? null,
       export_power: pMaps.export_power.get(ts) ?? null,
+      external_power: pMaps.external_power.get(ts) ?? null,
       batt_soc: bMaps.batt_soc.get(ts) ?? null,
       poa_irradiance: eMaps.poa_irradiance.get(ts) ?? null,
     };
@@ -94,6 +100,7 @@ const POWER_MIX_SERIES_LABELS = {
   load_power: 'Consumption',
   gridImport: 'Grid Import',
   gridExport: 'Grid Export',
+  external_power: 'External Power',
   battChargeNorm: 'Battery Charge',
   batt_discharge_power: 'Battery Discharge',
   genset_power: 'Genset',
@@ -157,7 +164,7 @@ function PowerMixChart({ rows, height = 380 }) {
 
   React.useEffect(() => {
     if (!canvasRef.current || typeof Chart === 'undefined') return;
-    const labels = rows.map((r) => formatSAST(r.timestamp));
+    const labels = rows.map((r) => formatSASTDateOnly(r.timestamp));
     const line = (key, label, color, extra) => ({
       label, data: rows.map((r) => r[key]), borderColor: color, backgroundColor: color + '33',
       yAxisID: 'y', tension: 0.25, pointRadius: 0, borderWidth: 1.8, spanGaps: true, fill: false, ...extra,
@@ -165,8 +172,9 @@ function PowerMixChart({ rows, height = 380 }) {
     const datasets = [
       line('pv_power', 'PV Power [kW]', '#F5C842', { fill: true }),
       line('load_power', 'Consumption [kW]', '#4CAF50'),
-      line('gridImport', 'External Power (Grid Import) [kW]', '#FF7043'),
+      line('gridImport', 'Grid Import [kW]', '#FF7043'),
       line('gridExport', 'Power to Grid (Export) [kW]', '#8D6E63', { borderDash: [4, 2] }),
+      line('external_power', 'External Power [kW]', '#607D8B', { borderDash: [2, 2] }),
       line('battChargeNorm', 'Battery Charge Power [kW]', '#90CAF9', { fill: true }),
       line('batt_discharge_power', 'Battery Discharge Power [kW]', '#1565C0'),
       line('genset_power', 'Genset Power [kW]', '#CE93D8'),
@@ -184,7 +192,13 @@ function PowerMixChart({ rows, height = 380 }) {
           y: { position: 'left', title: { display: true, text: 'Power [kW]' } },
           y1: { position: 'right', min: 0, max: 100, title: { display: true, text: 'SOC [%]' }, grid: { drawOnChartArea: false } },
         },
-        plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } },
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } },
+          // Axis ticks show the date only (see labels above); the tooltip keeps
+          // full date+time precision so hovering a specific 15-min/hourly point
+          // still shows exactly when it was.
+          tooltip: { callbacks: { title: (items) => (items.length ? formatSAST(rows[items[0].dataIndex].timestamp) : '') } },
+        },
       },
     });
     return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
@@ -291,7 +305,7 @@ function DailyPRChart({ days, targetPr, height = 260 }) {
     if (chartRef.current) chartRef.current.destroy();
     chartRef.current = new Chart(canvasRef.current, {
       data: {
-        labels: days.map((d) => d.date),
+        labels: days.map((d) => formatSASTDateOnly(d.date) || d.date),
         datasets: [
           { type: 'bar', label: 'Daily PR [%]', data: days.map((d) => d.pr), backgroundColor: colors, borderRadius: 3 },
           { type: 'line', label: `Target PR ${targetPr}%`, data: days.map(() => targetPr), borderColor: '#5C8098', borderDash: [6, 3], borderWidth: 1.5, pointRadius: 0, fill: false },

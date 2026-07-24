@@ -16,10 +16,19 @@ function clampRange(from, to) {
   return { from: invIsoDate(a), to: invIsoDate(b), days: Math.round((b - a) / INV_DAY_MS) + 1 };
 }
 
+const INVERTER_METRIC_TOGGLES = [
+  { key: 'power', label: 'Power', avail: () => true },
+  { key: 'current', label: 'Current', avail: (s) => s.hasCurrent },
+  { key: 'voltage', label: 'Voltage', avail: (s) => s.hasVoltage },
+  { key: 'temp', label: 'Temperature', avail: (s) => s.peakTemp != null },
+];
+
 function InverterBlock({ inv, from, to, days, open, onToggle }) {
   const ammp = useAmmp();
   const [series, setSeries] = _invUseState(null);
   const [loadErr, setLoadErr] = _invUseState(null);
+  const [metrics, setMetrics] = _invUseState(new Set(['power']));
+  const [showStrings, setShowStrings] = _invUseState(false);
 
   _invUseEffect(() => {
     if (!open) { setSeries(null); return; }
@@ -28,10 +37,17 @@ function InverterBlock({ inv, from, to, days, open, onToggle }) {
     const dateFromIso = new Date(from + 'T00:00:00Z').toISOString();
     const dateToIso = new Date(to + 'T23:59:59Z').toISOString();
     ammp.inverterSeriesFor(inv.deviceId, dateFromIso, dateToIso, days)
-      .then((s) => { if (!cancelled) setSeries(s); })
+      .then((s) => {
+        if (cancelled) return;
+        setSeries(s);
+        setMetrics(new Set(['power', ...(s.peakTemp != null ? ['temp'] : [])]));
+        setShowStrings(s.nStrings > 0);
+      })
       .catch((e) => { if (!cancelled) { setLoadErr(e.message || 'Failed to load AMMP data'); setSeries(null); } });
     return () => { cancelled = true; };
   }, [inv.deviceId, from, to, days, open]);
+
+  const toggleMetric = (key) => setMetrics((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
   return (
     <div className="card" style={{ overflow: 'hidden', borderTop: `3px solid ${inv.color}` }}>
@@ -55,9 +71,35 @@ function InverterBlock({ inv, from, to, days, open, onToggle }) {
         ? <div style={{ padding: '0 16px 14px' }}><EmptyState title="No power/temperature data for this range." /></div>
         : (
           <div style={{ padding: '0 16px 14px' }}>
-            <InverterChart series={series} invColor={inv.color} height={260} metrics={series.peakTemp != null ? ['power', 'temp'] : ['power']} showStrings={series.nStrings > 0} />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              {INVERTER_METRIC_TOGGLES.filter((m) => m.avail(series)).map((m) => {
+                const on = metrics.has(m.key);
+                return (
+                  <button key={m.key} onClick={() => toggleMetric(m.key)} style={{
+                    display: 'flex', alignItems: 'center', gap: 7, padding: '5px 11px', borderRadius: 20,
+                    border: `1px solid ${on ? inv.color : 'var(--grey-lt)'}`, background: on ? '#fff' : 'var(--grey-xlt)',
+                    fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 600, color: on ? 'var(--ink)' : 'var(--ink-light)', cursor: 'pointer',
+                  }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: on ? inv.color : '#C2C8CE' }}></span>{m.label}
+                  </button>
+                );
+              })}
+              {series.nStrings > 0 && (
+                <button onClick={() => setShowStrings((v) => !v)} style={{
+                  marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7, padding: '5px 11px', borderRadius: 20,
+                  border: `1px solid ${showStrings ? inv.color : 'var(--grey-lt)'}`, background: showStrings ? '#fff' : 'var(--grey-xlt)',
+                  fontFamily: 'var(--font-mono)', fontSize: '0.68rem', fontWeight: 600, color: showStrings ? 'var(--ink)' : 'var(--ink-light)', cursor: 'pointer',
+                }}>
+                  {showStrings ? 'Hide' : 'Show'} strings ({series.nStrings})
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: showStrings && series.nStrings > 0 ? '1.4fr 1fr' : '1fr', gap: 'var(--gap)', alignItems: 'start' }}>
+              <InverterChart series={series} invColor={inv.color} height={260} metrics={metrics.size ? [...metrics] : ['power']} />
+              {showStrings && series.nStrings > 0 && <StringChart series={series} height={260} />}
+            </div>
             <div className="mono" style={{ fontSize: '0.6rem', color: 'var(--ink-light)', marginTop: 8, textAlign: 'center' }}>
-              Live from AMMP — power{series.peakTemp != null ? ' & temperature' : ''}{series.nStrings > 0 ? ` · ${series.nStrings} string${series.nStrings === 1 ? '' : 's'} (faint lines)` : ''}
+              Live from AMMP{series.nStrings > 0 ? ` · ${series.nStrings} string${series.nStrings === 1 ? '' : 's'}` : ''}
             </div>
           </div>
         ))}
